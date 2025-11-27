@@ -1,10 +1,11 @@
+
 import React, { useRef, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Layers, HardDrive } from "lucide-react";
 import StackFrame from "./StackFrame";
 import HeapBlock from "./HeapBlock";
 
-export default function MemoryVisualization({ memoryState, isActive, isDarkMode }) {
+export default function MemoryVisualization({ memoryState, isActive, isDarkMode, memoryLeaks = [] }) {
   const { stack = [], heap = [], pointers = [] } = memoryState;
   const stackRefs = useRef({});
   const heapRefs = useRef({});
@@ -338,7 +339,11 @@ export default function MemoryVisualization({ memoryState, isActive, isDarkMode 
                   <div key={block.address} ref={(el) => {
                     if (el) heapRefs.current[block.address] = el;
                   }}>
-                    <HeapBlock block={block} isDarkMode={isDarkMode} />
+                    <HeapBlock 
+                      block={block} 
+                      isDarkMode={isDarkMode}
+                      isLeaked={memoryLeaks.includes(block.address)}
+                    />
                   </div>
                 ))
               )}

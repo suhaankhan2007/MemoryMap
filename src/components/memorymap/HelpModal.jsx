@@ -26,11 +26,11 @@ export default function HelpModal({ isOpen, onClose, isDarkMode }) {
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="fixed inset-4 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[700px] md:max-h-[85vh] z-50"
+            className="fixed inset-4 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[800px] md:max-h-[90vh] z-50 flex flex-col"
           >
-            <div className={`${bgClass} rounded-2xl shadow-2xl overflow-hidden border-2 ${isDarkMode ? 'border-gray-700' : 'border-purple-200'}`}>
-              {/* Header */}
-              <div className="bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-600 p-6 text-white">
+            <div className={`${bgClass} rounded-2xl shadow-2xl overflow-hidden border-2 ${isDarkMode ? 'border-gray-700' : 'border-purple-200'} flex flex-col max-h-full`}>
+              {/* Fixed Header */}
+              <div className="bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-600 p-6 text-white flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <BookOpen className="w-8 h-8" />
@@ -47,150 +47,185 @@ export default function HelpModal({ isOpen, onClose, isDarkMode }) {
                 </div>
               </div>
 
-              {/* Content */}
-              <div className="p-6 overflow-y-auto max-h-[calc(85vh-100px)]">
-                <div className="space-y-6">
-                  {/* Getting Started */}
-                  <section>
-                    <h3 className={`text-lg font-bold ${textClass} mb-3 flex items-center gap-2`}>
-                      <Code className="w-5 h-5 text-blue-600" />
-                      Getting Started
-                    </h3>
-                    <ul className={`space-y-2 ${secondaryTextClass} text-sm`}>
-                      <li className="flex gap-2">
-                        <span className="text-purple-600 font-bold">1.</span>
-                        <span>Write C++ code in the editor (max 30 lines)</span>
-                      </li>
-                      <li className="flex gap-2">
-                        <span className="text-purple-600 font-bold">2.</span>
-                        <span>Click <strong className="text-yellow-600">Parse Code</strong> to analyze it</span>
-                      </li>
-                      <li className="flex gap-2">
-                        <span className="text-purple-600 font-bold">3.</span>
-                        <span>Use <strong className="text-green-600">Auto Run</strong> or <strong>Step</strong> to execute line by line</span>
-                      </li>
-                      <li className="flex gap-2">
-                        <span className="text-purple-600 font-bold">4.</span>
-                        <span>Watch memory visualization and read AI explanations</span>
-                      </li>
-                    </ul>
-                  </section>
+              {/* Scrollable Content */}
+              <div className="overflow-y-auto flex-1 p-6 space-y-6 custom-scrollbar">
+                {/* Getting Started */}
+                <section>
+                  <h3 className={`text-lg font-bold ${textClass} mb-3 flex items-center gap-2`}>
+                    <Code className="w-5 h-5 text-blue-600" />
+                    Getting Started
+                  </h3>
+                  <ul className={`space-y-2 ${secondaryTextClass} text-sm`}>
+                    <li className="flex gap-2">
+                      <span className="text-purple-600 font-bold">1.</span>
+                      <span>Write C++ code in the editor (max 30 lines)</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="text-purple-600 font-bold">2.</span>
+                      <span>Click <strong className="text-yellow-600">Parse Code</strong> to analyze it</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="text-purple-600 font-bold">3.</span>
+                      <span>Use <strong className="text-green-600">Auto Run</strong> or <strong>Step</strong> to execute line by line</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="text-purple-600 font-bold">4.</span>
+                      <span>Watch memory visualization and read AI explanations</span>
+                    </li>
+                  </ul>
+                </section>
 
-                  {/* Supported Features */}
-                  <section>
-                    <h3 className={`text-lg font-bold ${textClass} mb-3 flex items-center gap-2`}>
-                      <Zap className="w-5 h-5 text-yellow-600" />
-                      Supported C++ Features
-                    </h3>
-                    <div className={`${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-4 font-mono text-sm space-y-2`}>
-                      <div className={secondaryTextClass}>
-                        <strong className="text-blue-600">Primitive Types:</strong> int, float, double, char, bool, long, short
-                      </div>
-                      <div className={secondaryTextClass}>
-                        <strong className="text-amber-600">Strings:</strong> std::string name = "Alice";
-                      </div>
-                      <div className={secondaryTextClass}>
-                        <strong className="text-green-600">Pointers:</strong> int* ptr = &x; double* ptr = new double(3.14);
-                      </div>
-                      <div className={secondaryTextClass}>
-                        <strong className="text-orange-600">Heap:</strong> new Type(value), delete ptr
-                      </div>
-                      <div className={secondaryTextClass}>
-                        <strong className="text-purple-600">Dereferencing:</strong> *ptr = 20;
-                      </div>
-                      <div className={secondaryTextClass}>
-                        <strong className="text-red-600">Null:</strong> ptr = nullptr; or ptr = NULL;
-                      </div>
+                {/* Supported Features */}
+                <section>
+                  <h3 className={`text-lg font-bold ${textClass} mb-3 flex items-center gap-2`}>
+                    <Zap className="w-5 h-5 text-yellow-600" />
+                    Supported C++ Features
+                  </h3>
+                  <div className={`${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-4 font-mono text-sm space-y-2`}>
+                    <div className={secondaryTextClass}>
+                      <strong className="text-blue-600">Primitive Types:</strong> int, float, double, char, bool, long, short
                     </div>
-                  </section>
+                    <div className={secondaryTextClass}>
+                      <strong className="text-amber-600">Strings:</strong> std::string name = "Alice";
+                    </div>
+                    <div className={secondaryTextClass}>
+                      <strong className="text-teal-600">Vectors:</strong> std::vector&lt;int&gt; vec = {'{1,2,3}'}; vec.push_back(4);
+                    </div>
+                    <div className={secondaryTextClass}>
+                      <strong className="text-green-600">Pointers:</strong> int* ptr = &x; double* ptr = new double(3.14);
+                    </div>
+                    <div className={secondaryTextClass}>
+                      <strong className="text-orange-600">Heap:</strong> new Type(value), delete ptr, delete[] arr
+                    </div>
+                    <div className={secondaryTextClass}>
+                      <strong className="text-purple-600">Dereferencing:</strong> *ptr = 20;
+                    </div>
+                    <div className={secondaryTextClass}>
+                      <strong className="text-pink-600">Arrays:</strong> int arr[5]; int* arr = new int[10];
+                    </div>
+                    <div className={secondaryTextClass}>
+                      <strong className="text-indigo-600">Structs:</strong> struct Point {'{'}int x; int y;{'}'};
+                    </div>
+                    <div className={secondaryTextClass}>
+                      <strong className="text-cyan-600">References:</strong> int& ref = x;
+                    </div>
+                    <div className={secondaryTextClass}>
+                      <strong className="text-rose-600">Functions:</strong> int add(int a, int b) {'{'}return a + b;{'}'}
+                    </div>
+                    <div className={secondaryTextClass}>
+                      <strong className="text-red-600">Null:</strong> ptr = nullptr; or ptr = NULL;
+                    </div>
+                  </div>
+                </section>
 
-                  {/* Memory Management Warnings */}
-                  <section>
-                    <h3 className={`text-lg font-bold ${textClass} mb-3 flex items-center gap-2`}>
-                      <AlertTriangle className="w-5 h-5 text-red-600" />
-                      Memory Management Detection
-                    </h3>
-                    <div className="space-y-3">
-                      <div className={`${isDarkMode ? 'bg-red-900/20' : 'bg-red-50'} border-2 border-red-300 rounded-lg p-3`}>
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-                          <div>
-                            <strong className="text-red-800 dark:text-red-400">Memory Leaks:</strong>
-                            <p className={`text-sm ${secondaryTextClass} mt-1`}>
-                              Heap memory allocated with <code className="bg-red-200 dark:bg-red-800 px-1 rounded">new</code> but never freed with <code className="bg-red-200 dark:bg-red-800 px-1 rounded">delete</code>
-                            </p>
-                          </div>
+                {/* Memory Management Warnings */}
+                <section>
+                  <h3 className={`text-lg font-bold ${textClass} mb-3 flex items-center gap-2`}>
+                    <AlertTriangle className="w-5 h-5 text-red-600" />
+                    Memory Management Detection
+                  </h3>
+                  <div className="space-y-3">
+                    <div className={`${isDarkMode ? 'bg-red-900/20' : 'bg-red-50'} border-2 border-red-300 rounded-lg p-3`}>
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="text-red-800 dark:text-red-400">Memory Leaks:</strong>
+                          <p className={`text-sm ${secondaryTextClass} mt-1`}>
+                            Heap memory allocated with <code className="bg-red-200 dark:bg-red-800 px-1 rounded">new</code> but never freed with <code className="bg-red-200 dark:bg-red-800 px-1 rounded">delete</code>. 
+                            The app will show you exactly which memory blocks are leaked at the end!
+                          </p>
                         </div>
                       </div>
-                      <div className={`${isDarkMode ? 'bg-orange-900/20' : 'bg-orange-50'} border-2 border-orange-300 rounded-lg p-3`}>
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="w-4 h-4 text-orange-600 flex-shrink-0 mt-0.5" />
-                          <div>
-                            <strong className="text-orange-800 dark:text-orange-400">Dangling Pointers:</strong>
-                            <p className={`text-sm ${secondaryTextClass} mt-1`}>
-                              Pointers that point to deleted memory (use-after-free bugs)
-                            </p>
-                          </div>
+                    </div>
+                    <div className={`${isDarkMode ? 'bg-orange-900/20' : 'bg-orange-50'} border-2 border-orange-300 rounded-lg p-3`}>
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-orange-600 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="text-orange-800 dark:text-orange-400">Dangling Pointers:</strong>
+                          <p className={`text-sm ${secondaryTextClass} mt-1`}>
+                            Pointers that point to deleted memory (use-after-free bugs). Always set pointers to nullptr after deletion!
+                          </p>
                         </div>
                       </div>
                     </div>
-                  </section>
+                  </div>
+                </section>
 
-                  {/* Tips */}
-                  <section>
-                    <h3 className={`text-lg font-bold ${textClass} mb-3 flex items-center gap-2`}>
-                      <CheckCircle className="w-5 h-5 text-green-600" />
-                      Pro Tips
-                    </h3>
-                    <ul className={`space-y-2 ${secondaryTextClass} text-sm`}>
-                      <li className="flex items-start gap-2">
-                        <span className="text-green-600">✓</span>
-                        <span>Use <strong>Examples</strong> dropdown to load pre-made code</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="text-green-600">✓</span>
-                        <span>Adjust <strong>Speed</strong> slider to control auto-run timing</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="text-green-600">✓</span>
-                        <span>Use <strong>Undo/Redo</strong> (Ctrl+Z/Ctrl+Y) for code changes</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="text-green-600">✓</span>
-                        <span>Watch for animated arrows showing pointer connections</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="text-green-600">✓</span>
-                        <span>Toggle <strong>Dark Mode</strong> for comfortable viewing</span>
-                      </li>
-                    </ul>
-                  </section>
+                {/* Tips */}
+                <section>
+                  <h3 className={`text-lg font-bold ${textClass} mb-3 flex items-center gap-2`}>
+                    <CheckCircle className="w-5 h-5 text-green-600" />
+                    Pro Tips
+                  </h3>
+                  <ul className={`space-y-2 ${secondaryTextClass} text-sm`}>
+                    <li className="flex items-start gap-2">
+                      <span className="text-green-600">✓</span>
+                      <span>Use <strong>Examples</strong> dropdown to load pre-made code</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-green-600">✓</span>
+                      <span>Adjust <strong>Speed</strong> slider to control auto-run timing</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-green-600">✓</span>
+                      <span>Use <strong>Undo/Redo</strong> (Ctrl+Z/Ctrl+Y) for code changes</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-green-600">✓</span>
+                      <span>Watch for animated arrows showing pointer connections</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-green-600">✓</span>
+                      <span>Toggle <strong>Dark Mode</strong> for comfortable viewing</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-green-600">✓</span>
+                      <span>Red highlights on heap blocks indicate memory leaks</span>
+                    </li>
+                  </ul>
+                </section>
 
-                  {/* RAII Explanation */}
-                  <section className={`${isDarkMode ? 'bg-indigo-900/20' : 'bg-indigo-50'} border-2 border-indigo-300 rounded-lg p-4`}>
-                    <h3 className={`text-lg font-bold ${textClass} mb-2`}>
-                      🎯 Understanding RAII
-                    </h3>
-                    <p className={`text-sm ${secondaryTextClass}`}>
-                      <strong>Resource Acquisition Is Initialization (RAII)</strong> is a C++ programming technique where:
-                    </p>
-                    <ul className={`mt-2 space-y-1 text-sm ${secondaryTextClass} ml-4`}>
-                      <li>• Resources are acquired in a constructor</li>
-                      <li>• Resources are released in a destructor</li>
-                      <li>• This visualization shows manual memory management - RAII automates this!</li>
-                    </ul>
-                  </section>
-                </div>
+                {/* RAII Explanation */}
+                <section className={`${isDarkMode ? 'bg-indigo-900/20' : 'bg-indigo-50'} border-2 border-indigo-300 rounded-lg p-4`}>
+                  <h3 className={`text-lg font-bold ${textClass} mb-2`}>
+                    🎯 Understanding RAII
+                  </h3>
+                  <p className={`text-sm ${secondaryTextClass}`}>
+                    <strong>Resource Acquisition Is Initialization (RAII)</strong> is a C++ programming technique where:
+                  </p>
+                  <ul className={`mt-2 space-y-1 text-sm ${secondaryTextClass} ml-4`}>
+                    <li>• Resources are acquired in a constructor</li>
+                    <li>• Resources are released in a destructor</li>
+                    <li>• This visualization shows manual memory management - RAII automates this!</li>
+                  </ul>
+                </section>
               </div>
 
-              {/* Footer */}
-              <div className={`${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'} p-4 border-t ${isDarkMode ? 'border-gray-600' : 'border-gray-200'}`}>
+              {/* Fixed Footer */}
+              <div className={`${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'} p-4 border-t ${isDarkMode ? 'border-gray-600' : 'border-gray-200'} flex-shrink-0`}>
                 <Button onClick={onClose} className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700">
                   Got it, let's code!
                 </Button>
               </div>
             </div>
           </motion.div>
+
+          <style jsx global>{`
+            .custom-scrollbar::-webkit-scrollbar {
+              width: 8px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-track {
+              background: ${isDarkMode ? '#374151' : '#f3f4f6'};
+              border-radius: 4px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-thumb {
+              background: ${isDarkMode ? '#6b7280' : '#9ca3af'};
+              border-radius: 4px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+              background: ${isDarkMode ? '#9ca3af' : '#6b7280'};
+            }
+          `}</style>
         </>
       )}
     </AnimatePresence>

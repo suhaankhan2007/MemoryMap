@@ -16,28 +16,91 @@ import {
 import CodeEditor from "../components/memorymap/CodeEditor";
 import MemoryVisualization from "../components/memorymap/MemoryVisualization";
 import ExplanationPanel from "../components/memorymap/ExplanationPanel";
+import CallStackPanel from "../components/memorymap/CallStackPanel";
+import WatchPanel from "../components/memorymap/WatchPanel";
+import BreakpointPanel from "../components/memorymap/BreakpointPanel";
 import { parseAndSimulateCpp } from "../components/memorymap/cppSimulator";
 import HelpModal from "../components/memorymap/HelpModal";
 
 const CODE_EXAMPLES = {
-  basic: `int x = 10;
+  basic: {
+    name: "Basic Pointers",
+    description: "Learn pointer fundamentals and dereferencing",
+    code: `int x = 10;
 int y = 20;
 int* ptr = &x;
-*ptr = 15;`,
-  
-  heap: `int* ptr = new int(30);
+*ptr = 15;`
+  },
+
+  heap: {
+    name: "Heap Memory",
+    description: "Dynamic memory allocation and deallocation",
+    code: `int* ptr = new int(30);
 *ptr = 40;
 int x = 50;
-delete ptr;`,
-  
-  multiple_pointers: `int x = 5;
+delete ptr;`
+  },
+
+  arrays: {
+    name: "Arrays",
+    description: "Stack and heap arrays with indexing",
+    code: `int arr[3] = {10, 20, 30};
+arr[1] = 25;
+int* dynArr = new int[4];
+dynArr[0] = 100;
+dynArr[3] = 400;
+delete[] dynArr;`
+  },
+
+  references: {
+    name: "References",
+    description: "C++ references and aliasing",
+    code: `int x = 10;
+int& ref = x;
+ref = 20;
+int y = 30;`
+  },
+
+  structs: {
+    name: "Structs",
+    description: "Structured data types",
+    code: `struct Point {
+int x;
+int y;
+};
+Point p;
+p.x = 5;
+p.y = 10;`
+  },
+
+  functions: {
+    name: "Function Calls",
+    description: "Function calls with stack frames",
+    code: `int add(int a, int b) {
+int result = a + b;
+return result;
+}
+int x = 5;
+int y = 10;
+int sum = add(x, y);`
+  },
+
+  multiple_pointers: {
+    name: "Multiple Pointers",
+    description: "Multiple pointers to same location",
+    code: `int x = 5;
 int* p1 = &x;
 int* p2 = p1;
 *p2 = 10;
 int* heap = new int(20);
-p1 = heap;`,
-  
-  complex: `int a = 10;
+p1 = heap;
+delete heap;`
+  },
+
+  complex: {
+    name: "Complex Example",
+    description: "Advanced pointer manipulation",
+    code: `int a = 10;
 int b = 20;
 int* ptr1 = &a;
 int* ptr2 = &b;
@@ -48,9 +111,13 @@ ptr1 = heap1;
 ptr2 = heap2;
 *ptr1 = 150;
 delete heap1;
-delete heap2;`,
+delete heap2;`
+  },
 
-  mixed_types: `int x = 42;
+  mixed_types: {
+    name: "Mixed Types",
+    description: "Different data types in memory",
+    code: `int x = 42;
 float pi = 3.14;
 double e = 2.718;
 char c = 'A';
@@ -58,18 +125,55 @@ bool flag = true;
 double* dptr = &e;
 *dptr = 2.5;
 float* fheap = new float(9.99);
-delete fheap;`,
+delete fheap;`
+  },
 
-  strings: `std::string name = "Alice";
+  strings: {
+    name: "Strings",
+    description: "String handling in C++",
+    code: `std::string name = "Alice";
 std::string* ptr = &name;
 std::string* heap = new std::string("Hello");
 int age = 25;
-delete heap;`,
+delete heap;`
+  },
+
+  vectors: {
+    name: "Vectors",
+    description: "std::vector operations",
+    code: `std::vector<int> vec = {1, 2, 3};
+vec.push_back(4);
+vec.push_back(5);
+vec[0] = 10;
+int x = 42;`
+  },
+
+  memory_leak: {
+    name: "Memory Leak Demo",
+    description: "See how memory leaks occur",
+    code: `int* ptr1 = new int(100);
+int* ptr2 = new int(200);
+int x = 50;
+delete ptr1;`
+  },
+
+  raii: {
+    name: "RAII Pattern",
+    description: "Resource management with functions",
+    code: `int allocate(int val) {
+int* ptr = new int(val);
+int result = *ptr;
+delete ptr;
+return result;
+}
+int value = allocate(42);`
+  },
 };
 
 export default function MemoryMapPage() {
-  const [code, setCode] = useState(CODE_EXAMPLES.basic);
-  const [codeHistory, setCodeHistory] = useState([CODE_EXAMPLES.basic]);
+  const [showWelcome, setShowWelcome] = useState(true);
+  const [code, setCode] = useState(CODE_EXAMPLES.basic.code);
+  const [codeHistory, setCodeHistory] = useState([CODE_EXAMPLES.basic.code]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [executionSteps, setExecutionSteps] = useState([]);
   const [currentStep, setCurrentStep] = useState(0);
@@ -83,9 +187,24 @@ export default function MemoryMapPage() {
   const [danglingPointers, setDanglingPointers] = useState([]);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [breakpoints, setBreakpoints] = useState(new Set());
+  const [watchList, setWatchList] = useState([]);
+  const [user, setUser] = useState(null);
   const intervalRef = React.useRef(null);
 
-  // Load dark mode preference
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const currentUser = await base44.auth.me();
+        setUser(currentUser);
+      } catch (error) {
+        console.error("Failed to fetch user:", error);
+      }
+    };
+
+    fetchUser();
+  }, []);
+
   useEffect(() => {
     const savedMode = localStorage.getItem('memorymap-dark-mode');
     if (savedMode === 'true') {
@@ -93,12 +212,15 @@ export default function MemoryMapPage() {
     }
   }, []);
 
-  // Save dark mode preference
   useEffect(() => {
     localStorage.setItem('memorymap-dark-mode', isDarkMode);
   }, [isDarkMode]);
 
-  // Handle code change with history
+  const handleLogout = () => {
+    base44.auth.logout();
+    window.location.href = '/';
+  };
+
   const handleCodeChange = (newCode) => {
     setCode(newCode);
     const newHistory = codeHistory.slice(0, historyIndex + 1);
@@ -107,7 +229,6 @@ export default function MemoryMapPage() {
     setHistoryIndex(newHistory.length - 1);
   };
 
-  // Undo
   const handleUndo = () => {
     if (historyIndex > 0) {
       setHistoryIndex(historyIndex - 1);
@@ -115,7 +236,6 @@ export default function MemoryMapPage() {
     }
   };
 
-  // Redo
   const handleRedo = () => {
     if (historyIndex < codeHistory.length - 1) {
       setHistoryIndex(historyIndex + 1);
@@ -123,7 +243,6 @@ export default function MemoryMapPage() {
     }
   };
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
@@ -139,7 +258,6 @@ export default function MemoryMapPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [historyIndex, codeHistory]);
 
-  // Parse code and generate execution steps
   const handleRun = async () => {
     setError(null);
     setMemoryLeaks([]);
@@ -168,17 +286,17 @@ export default function MemoryMapPage() {
     }
   };
 
-  // Detect memory leaks and dangling pointers
   const detectMemoryIssues = (steps) => {
     const lastStep = steps[steps.length - 1];
     if (lastStep) {
-      // Memory leaks: heap blocks never freed
-      const leakedMemory = lastStep.memoryState.heap.filter(block => !block.isDeleted);
+      // Memory leaks: heap blocks never freed - get their addresses
+      const leakedMemory = lastStep.memoryState.heap
+        .filter(block => !block.isDeleted)
+        .map(block => block.address);
       if (leakedMemory.length > 0) {
         setMemoryLeaks(leakedMemory);
       }
       
-      // Dangling pointers
       const danglingPtrs = lastStep.memoryState.danglingPointers || [];
       if (danglingPtrs.length > 0) {
         setDanglingPointers(danglingPtrs);
@@ -186,7 +304,6 @@ export default function MemoryMapPage() {
     }
   };
 
-  // Generate AI explanations for each step
   const generateExplanations = async (steps) => {
     setIsGeneratingExplanations(true);
     const newExplanations = {};
@@ -204,7 +321,7 @@ Current memory state before this line:
 - Heap allocations: ${JSON.stringify(step.memoryState.heap)}
 
 Focus on:
-1. What memory operation is happening (allocation, assignment, pointer manipulation, etc.)
+1. What memory operation is happening (allocation, assignment, pointer manipulation, array access, struct/class usage, reference, function call, etc.)
 2. Where in memory it affects (stack or heap)
 3. What the student should understand about this operation
 
@@ -225,14 +342,35 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
     }
   };
 
-  // Step to next line
   const handleStep = () => {
     if (currentStep < executionSteps.length - 1) {
       setCurrentStep(currentStep + 1);
+      setIsPaused(false);
     }
   };
 
-  // Auto-run through all steps
+  const handleToggleBreakpoint = (lineNumber) => {
+    setBreakpoints(prev => {
+      const newBreakpoints = new Set(prev);
+      if (newBreakpoints.has(lineNumber)) {
+        newBreakpoints.delete(lineNumber);
+      } else {
+        newBreakpoints.add(lineNumber);
+      }
+      return newBreakpoints;
+    });
+  };
+
+  const handleAddWatch = (varName) => {
+    if (!watchList.includes(varName)) {
+      setWatchList([...watchList, varName]);
+    }
+  };
+
+  const handleRemoveWatch = (varName) => {
+    setWatchList(watchList.filter(v => v !== varName));
+  };
+
   const handleAutoRun = () => {
     setIsRunning(true);
     setIsPaused(false);
@@ -245,11 +383,21 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
         setIsRunning(false);
         return;
       }
+      
+      // Check for breakpoint
+      const nextLine = executionSteps[step]?.lineNumber;
+      if (breakpoints.has(nextLine)) {
+        clearInterval(intervalRef.current);
+        setIsRunning(false);
+        setIsPaused(true);
+        setCurrentStep(step);
+        return;
+      }
+      
       setCurrentStep(step);
     }, runSpeed);
   };
 
-  // Pause auto-run
   const handlePause = () => {
     setIsPaused(true);
     setIsRunning(false);
@@ -258,7 +406,6 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
     }
   };
 
-  // Reset to beginning
   const handleReset = () => {
     setCurrentStep(0);
     setIsRunning(false);
@@ -268,9 +415,8 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
     }
   };
 
-  // Load example code
   const handleLoadExample = (exampleKey) => {
-    const newCode = CODE_EXAMPLES[exampleKey];
+    const newCode = CODE_EXAMPLES[exampleKey].code;
     setCode(newCode);
     setCodeHistory([...codeHistory, newCode]);
     setHistoryIndex(codeHistory.length);
@@ -278,9 +424,12 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
     setCurrentStep(0);
     setExplanations({});
     setError(null);
+    setMemoryLeaks([]);
+    setDanglingPointers([]);
+    setBreakpoints(new Set());
+    setWatchList([]);
   };
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (intervalRef.current) {
@@ -294,7 +443,6 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
   const currentExplanation = explanations[currentStep] || "";
   const currentDanglingPointers = currentMemoryState.danglingPointers || [];
 
-  // Calculate memory stats
   const stackSize = currentMemoryState.stack.length;
   const heapSize = currentMemoryState.heap.filter(b => !b.isDeleted).length;
   const deletedHeap = currentMemoryState.heap.filter(b => b.isDeleted).length;
@@ -307,6 +455,122 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
 
   return (
     <div className={`min-h-screen ${bgClass}`}>
+      {/* Welcome Modal */}
+      <AnimatePresence>
+        {showWelcome && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+              onClick={() => setShowWelcome(false)}
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            >
+              <div className={`${isDarkMode ? 'bg-gray-800' : 'bg-white'} rounded-3xl shadow-2xl max-w-3xl w-full overflow-hidden border-2 ${isDarkMode ? 'border-gray-700' : 'border-purple-300'}`}>
+                <div className="bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-600 p-8 text-white text-center">
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ delay: 0.2, type: "spring" }}
+                    className="w-20 h-20 mx-auto mb-4 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center"
+                  >
+                    <Code2 className="w-10 h-10" />
+                  </motion.div>
+                  <h1 className="text-4xl font-bold mb-3">Welcome to Memory Map</h1>
+                  <p className="text-xl text-blue-100">Learn C++ Memory Management Visually</p>
+                </div>
+                
+                <div className="p-8 space-y-6">
+                  <div className={`${secondaryTextClass} text-lg leading-relaxed`}>
+                    <p className="mb-4">
+                      Memory Map helps you <strong className="text-purple-600">understand</strong> how C++ manages memory by 
+                      <strong className="text-blue-600"> visualizing</strong> every step of your code execution.
+                    </p>
+                  </div>
+                  
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className={`${isDarkMode ? 'bg-gray-700' : 'bg-purple-50'} rounded-xl p-4`}>
+                      <div className="flex items-center gap-3 mb-2">
+                        <Zap className="w-6 h-6 text-yellow-600" />
+                        <h3 className={`font-bold ${textClass}`}>Interactive Learning</h3>
+                      </div>
+                      <p className={`text-sm ${secondaryTextClass}`}>
+                        Write code, parse it, and watch memory changes step by step
+                      </p>
+                    </div>
+                    
+                    <div className={`${isDarkMode ? 'bg-gray-700' : 'bg-blue-50'} rounded-xl p-4`}>
+                      <div className="flex items-center gap-3 mb-2">
+                        <Lightbulb className="w-6 h-6 text-orange-600" />
+                        <h3 className={`font-bold ${textClass}`}>AI Explanations</h3>
+                      </div>
+                      <p className={`text-sm ${secondaryTextClass}`}>
+                        Get beginner-friendly explanations for every line
+                      </p>
+                    </div>
+                    
+                    <div className={`${isDarkMode ? 'bg-gray-700' : 'bg-green-50'} rounded-xl p-4`}>
+                      <div className="flex items-center gap-3 mb-2">
+                        <AlertTriangle className="w-6 h-6 text-red-600" />
+                        <h3 className={`font-bold ${textClass}`}>Bug Detection</h3>
+                      </div>
+                      <p className={`text-sm ${secondaryTextClass}`}>
+                        Automatically detects memory leaks and dangling pointers
+                      </p>
+                    </div>
+                    
+                    <div className={`${isDarkMode ? 'bg-gray-700' : 'bg-cyan-50'} rounded-xl p-4`}>
+                      <div className="flex items-center gap-3 mb-2">
+                        <TrendingUp className="w-6 h-6 text-cyan-600" />
+                        <h3 className={`font-bold ${textClass}`}>Advanced Features</h3>
+                      </div>
+                      <p className={`text-sm ${secondaryTextClass}`}>
+                        Supports pointers, arrays, structs, vectors, and functions
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className={`${isDarkMode ? 'bg-indigo-900/30' : 'bg-indigo-50'} border-2 border-indigo-300 rounded-xl p-4`}>
+                    <p className={`text-sm ${secondaryTextClass} text-center`}>
+                      💡 <strong>Pro tip:</strong> Start with the <strong className="text-purple-600">Examples</strong> dropdown to explore different concepts!
+                    </p>
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={() => setShowWelcome(false)}
+                      size="lg"
+                      className="flex-1 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-lg py-6"
+                    >
+                      Start Learning
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setShowWelcome(false);
+                        setShowHelp(true);
+                      }}
+                      size="lg"
+                      variant="outline"
+                      className={`${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-white hover:bg-gray-50'} py-6`}
+                    >
+                      <BookOpen className="w-5 h-5 mr-2" />
+                      View Tutorial
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+      
       <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} isDarkMode={isDarkMode} />
       
       {/* Header */}
@@ -319,17 +583,30 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-white">Memory Map</h1>
-                <p className="text-blue-100">Visualize C++ Stack, Heap & Pointers in Real-Time</p>
+                <p className="text-blue-100">Visualize C++ Memory: Stack, Heap, Pointers, Arrays, Structs, Vectors & Functions</p>
               </div>
             </div>
             
             {/* Control Buttons */}
             <div className="flex items-center gap-3 flex-wrap">
+              {user && (
+                <div className="flex items-center gap-2">
+                  <span className="text-white text-sm font-medium">Welcome, {user.email}</span>
+                  <Button
+                    onClick={handleLogout}
+                    size="sm"
+                    variant="outline"
+                    className="bg-white/90 hover:bg-white border-2 border-white/50"
+                  >
+                    Logout
+                  </Button>
+                </div>
+              )}
               <Button
                 onClick={() => setShowHelp(true)}
                 size="lg"
                 variant="outline"
-                className="bg-white/90 hover:bg-white border-2 border-white/50 gap-2"
+                className="bg-white/90 hover:bg-white border-2 border-white/50"
               >
                 <BookOpen className="w-5 h-5" />
                 <span className="hidden sm:inline">Help</span>
@@ -367,17 +644,19 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
               </Button>
 
               <Select onValueChange={handleLoadExample}>
-                <SelectTrigger className="w-40 bg-white/90 border-none">
+                <SelectTrigger className="w-48 bg-white/90 border-none">
                   <BookOpen className="w-4 h-4 mr-2" />
-                  <SelectValue placeholder="Examples" />
+                  <SelectValue placeholder="Load Example" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="basic">Basic Pointers</SelectItem>
-                  <SelectItem value="heap">Heap Memory</SelectItem>
-                  <SelectItem value="multiple_pointers">Multiple Pointers</SelectItem>
-                  <SelectItem value="complex">Complex Example</SelectItem>
-                  <SelectItem value="mixed_types">Mixed Types</SelectItem>
-                  <SelectItem value="strings">Strings</SelectItem>
+                <SelectContent className="max-h-96">
+                  {Object.entries(CODE_EXAMPLES).map(([key, example]) => (
+                    <SelectItem key={key} value={key}>
+                      <div className="flex flex-col">
+                        <span className="font-semibold">{example.name}</span>
+                        <span className="text-xs text-gray-500">{example.description}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
 
@@ -489,8 +768,12 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
             className="bg-red-50 border-2 border-red-300 rounded-xl p-4 text-red-800 flex items-start gap-3"
           >
             <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-            <div>
-              <strong>Error:</strong> {error}
+            <div className="flex-1">
+              <strong className="text-lg">Parsing Error</strong>
+              <p className="mt-1">{error}</p>
+              <p className="text-sm mt-2 text-red-600">
+                💡 Try loading an example from the dropdown or check the syntax guide in the Help menu.
+              </p>
             </div>
           </motion.div>
         </div>
@@ -529,6 +812,7 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
               <strong className="text-yellow-900">💧 Memory Leak Detected!</strong>
               <p className="text-yellow-800 mt-1">
                 You have {memoryLeaks.length} heap allocation(s) that were never freed with <code className="bg-yellow-200 px-1 rounded">delete</code>. 
+                Leaked addresses: <code className="bg-yellow-200 px-1 rounded font-mono">{memoryLeaks.join(', ')}</code>. 
                 This causes memory leaks in real programs! Always match every <code className="bg-yellow-200 px-1 rounded">new</code> with a <code className="bg-yellow-200 px-1 rounded">delete</code>.
               </p>
             </div>
@@ -556,6 +840,9 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
                 onChange={handleCodeChange}
                 currentLine={currentLine}
                 isDarkMode={isDarkMode}
+                isExecuting={executionSteps.length > 0}
+                breakpoints={breakpoints}
+                onToggleBreakpoint={handleToggleBreakpoint}
               />
             </Card>
 
@@ -567,7 +854,29 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
               totalSteps={executionSteps.length}
               isDarkMode={isDarkMode}
             />
-          </div>
+
+            {/* Debugging Panels */}
+            {executionSteps.length > 0 && (
+              <div className="grid md:grid-cols-3 gap-4">
+                <CallStackPanel
+                  callStack={currentMemoryState.callStack}
+                  isDarkMode={isDarkMode}
+                />
+                <WatchPanel
+                  watchList={watchList}
+                  onAddWatch={handleAddWatch}
+                  onRemoveWatch={handleRemoveWatch}
+                  memoryState={currentMemoryState}
+                  isDarkMode={isDarkMode}
+                />
+                <BreakpointPanel
+                  breakpoints={breakpoints}
+                  onRemoveBreakpoint={handleToggleBreakpoint}
+                  isDarkMode={isDarkMode}
+                />
+              </div>
+            )}
+            </div>
 
           {/* Right: Memory Visualization */}
           <div>
@@ -599,7 +908,7 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
           </div>
         </div>
 
-        {/* Tutorial hint */}
+        {/* Quick Start Guide */}
         {executionSteps.length === 0 && !error && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -610,25 +919,60 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
               <div className="w-12 h-12 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center flex-shrink-0">
                 <Lightbulb className="w-6 h-6 text-white" />
               </div>
-              <div>
-                <h3 className={`font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-900'} mb-2 text-lg`}>Getting Started with Memory Map</h3>
-                <p className={`${isDarkMode ? 'text-gray-300' : 'text-blue-800'} leading-relaxed mb-3`}>
-                  Enter your C++ code in the editor (up to 30 lines), then click <strong className="text-yellow-600">Parse Code</strong> to analyze it. 
-                  Use <strong className="text-green-600">Auto Run</strong> to play through all steps automatically, or <strong>Step</strong> to go line by line. 
-                  Watch how variables are allocated on the stack and heap, and see pointers come to life with animated arrows!
-                </p>
-                <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-blue-700'} mb-3`}>
-                  💡 Try the <strong>Examples</strong> dropdown to load pre-made code snippets, or adjust the <strong>Speed</strong> slider to control auto-run timing. 
-                  Use <strong>Undo/Redo</strong> (Ctrl+Z/Y) to navigate code changes.
-                </p>
-                <Button 
-                  onClick={() => setShowHelp(true)}
-                  variant="outline"
-                  className={`${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 border-gray-600' : 'bg-white hover:bg-blue-50 border-blue-300'}`}
-                >
-                  <BookOpen className="w-4 h-4 mr-2" />
-                  View Full Tutorial
-                </Button>
+              <div className="flex-1">
+                <h3 className={`font-bold ${isDarkMode ? 'text-blue-400' : 'text-blue-900'} mb-3 text-xl`}>Quick Start Guide</h3>
+
+                <div className="grid md:grid-cols-3 gap-4 mb-4">
+                  <div className={`${isDarkMode ? 'bg-gray-700/50' : 'bg-white/50'} rounded-lg p-3`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="bg-purple-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">1</span>
+                      <span className={`font-semibold ${textClass}`}>Write Code</span>
+                    </div>
+                    <p className={`text-sm ${secondaryTextClass}`}>Enter C++ code or load an example from the dropdown</p>
+                  </div>
+
+                  <div className={`${isDarkMode ? 'bg-gray-700/50' : 'bg-white/50'} rounded-lg p-3`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="bg-yellow-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">2</span>
+                      <span className={`font-semibold ${textClass}`}>Parse</span>
+                    </div>
+                    <p className={`text-sm ${secondaryTextClass}`}>Click "Parse Code" to analyze your program</p>
+                  </div>
+
+                  <div className={`${isDarkMode ? 'bg-gray-700/50' : 'bg-white/50'} rounded-lg p-3`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="bg-green-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">3</span>
+                      <span className={`font-semibold ${textClass}`}>Visualize</span>
+                    </div>
+                    <p className={`text-sm ${secondaryTextClass}`}>Use "Auto Run" or "Step" to see memory in action</p>
+                  </div>
+                </div>
+
+                <div className={`${isDarkMode ? 'bg-indigo-900/30' : 'bg-indigo-100'} rounded-lg p-3 mb-3`}>
+                  <p className={`text-sm ${secondaryTextClass}`}>
+                    ✨ <strong>Supports:</strong> Pointers, Arrays, Structs, References, std::vector, Functions, Memory Leak Detection, and more!
+                  </p>
+                </div>
+
+                <div className="flex gap-2 flex-wrap">
+                  <Button 
+                    onClick={() => setShowHelp(true)}
+                    variant="outline"
+                    size="sm"
+                    className={`${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 border-gray-600' : 'bg-white hover:bg-blue-50 border-blue-300'}`}
+                  >
+                    <BookOpen className="w-4 h-4 mr-2" />
+                    Full Tutorial
+                  </Button>
+                  <Button 
+                    onClick={() => handleLoadExample('functions')}
+                    variant="outline"
+                    size="sm"
+                    className={`${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 border-gray-600' : 'bg-white hover:bg-blue-50 border-blue-300'}`}
+                  >
+                    Try Function Calls Example
+                  </Button>
+                </div>
               </div>
             </div>
           </motion.div>
