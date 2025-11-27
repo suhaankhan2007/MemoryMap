@@ -1,20 +1,5 @@
-# Base44 App
+#MemoryMap
 
+This app was created to help users learn more about memory management in C++. Many college students, highschool students and others alike struggle with understanding memory errors in their code as they can often by ambigious. Using MemoryMap will help you map out your thought process and see what's actually happening in the heap and the stack! 
 
-This app was created automatically by Base44.
-It's a Vite+React app that communicates with the Base44 API.
-
-## Running the app
-
-```bash
-npm install
-npm run dev
-```
-
-## Building the app
-
-```bash
-npm run build
-```
-
-For more information and support, please contact Base44 support at app@base44.com.
+Launch MemoryMap now to get started. 
