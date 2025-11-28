@@ -189,21 +189,7 @@ export default function MemoryMapPage() {
   const [showHelp, setShowHelp] = useState(false);
   const [breakpoints, setBreakpoints] = useState(new Set());
   const [watchList, setWatchList] = useState([]);
-  const [user, setUser] = useState(null);
   const intervalRef = React.useRef(null);
-
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const currentUser = await base44.auth.me();
-        setUser(currentUser);
-      } catch (error) {
-        console.error("Failed to fetch user:", error);
-      }
-    };
-
-    fetchUser();
-  }, []);
 
   useEffect(() => {
     const savedMode = localStorage.getItem('memorymap-dark-mode');
@@ -215,11 +201,6 @@ export default function MemoryMapPage() {
   useEffect(() => {
     localStorage.setItem('memorymap-dark-mode', isDarkMode);
   }, [isDarkMode]);
-
-  const handleLogout = () => {
-    base44.auth.logout();
-    window.location.href = '/';
-  };
 
   const handleCodeChange = (newCode) => {
     setCode(newCode);
@@ -589,19 +570,6 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
             
             {/* Control Buttons */}
             <div className="flex items-center gap-3 flex-wrap">
-              {user && (
-                <div className="flex items-center gap-2">
-                  <span className="text-white text-sm font-medium">Welcome, {user.email}</span>
-                  <Button
-                    onClick={handleLogout}
-                    size="sm"
-                    variant="outline"
-                    className="bg-white/90 hover:bg-white border-2 border-white/50"
-                  >
-                    Logout
-                  </Button>
-                </div>
-              )}
               <Button
                 onClick={() => setShowHelp(true)}
                 size="lg"

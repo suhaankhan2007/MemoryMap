@@ -1,12 +1,7 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { base44 } from "@/api/base44Client";
 
 export default function LandingPage() {
-  const handleLogin = () => {
-    base44.auth.login('/app');
-  };
-
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground">
       <div className="max-w-2xl mx-auto text-center p-8">
@@ -20,9 +15,6 @@ export default function LandingPage() {
           <Link to="/app">
             <Button size="lg">Try it Now</Button>
           </Link>
-          <Button size="lg" variant="outline" onClick={handleLogin}>
-            Login
-          </Button>
         </div>
       </div>
     </div>

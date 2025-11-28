@@ -1,7 +1,6 @@
 import Layout from "./Layout.jsx";
 import MemoryMap from "./MemoryMap";
 import LandingPage from "./LandingPage";
-import ProtectedRoute from "../components/ProtectedRoute";
 
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
@@ -34,9 +33,7 @@ function PagesContent() {
         <Layout currentPageName={currentPage}>
             <Routes>
                 <Route path="/" element={<LandingPage />} />
-                <Route element={<ProtectedRoute />}>
-                    <Route path="/app" element={<MemoryMap />} />
-                </Route>
+                <Route path="/app" element={<MemoryMap />} />
             </Routes>
         </Layout>
     );
