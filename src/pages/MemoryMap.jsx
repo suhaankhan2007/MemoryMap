@@ -20,16 +20,18 @@ import CallStackPanel from "../components/memorymap/CallStackPanel";
 import WatchPanel from "../components/memorymap/WatchPanel";
 import BreakpointPanel from "../components/memorymap/BreakpointPanel";
 import { parseAndSimulateCpp } from "../components/memorymap/cppSimulator";
+import { parseAndSimulateC } from "../components/memorymap/cSimulator";
 import HelpModal from "../components/memorymap/HelpModal";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const CODE_EXAMPLES = {
+const CPP_EXAMPLES = {
   basic: {
     name: "Basic Pointers",
     description: "Learn pointer fundamentals and dereferencing",
-    code: `int x = 10;
-int y = 20;
-int* ptr = &x;
-*ptr = 15;`
+    code: `int* ptr = new int(42);
+*ptr = 100;
+delete ptr;
+ptr = nullptr;`
   },
 
   heap: {
@@ -170,10 +172,104 @@ int value = allocate(42);`
   },
 };
 
+const C_EXAMPLES = {
+  basic: {
+    name: "Basic Pointers",
+    description: "Learn pointer fundamentals in C",
+    code: `int* ptr = (int*)malloc(sizeof(int));
+*ptr = 42;
+free(ptr);
+ptr = NULL;`
+  },
+
+  malloc_free: {
+    name: "malloc/free",
+    description: "Dynamic memory with malloc and free",
+    code: `int* ptr = (int*)malloc(sizeof(int));
+*ptr = 42;
+int x = 50;
+free(ptr);`
+  },
+
+  arrays: {
+    name: "Arrays",
+    description: "Stack and heap arrays",
+    code: `int arr[3] = {10, 20, 30};
+arr[1] = 25;
+int* dynArr = (int*)malloc(4 * sizeof(int));
+dynArr[0] = 100;
+dynArr[3] = 400;
+free(dynArr);`
+  },
+
+  structs: {
+    name: "Structs",
+    description: "Structured data types in C",
+    code: `struct Point {
+int x;
+int y;
+};
+struct Point p;
+p.x = 5;
+p.y = 10;`
+  },
+
+  calloc: {
+    name: "calloc",
+    description: "Zero-initialized allocation",
+    code: `int* arr = (int*)calloc(5, sizeof(int));
+arr[0] = 10;
+arr[4] = 50;
+free(arr);`
+  },
+
+  pointer_arithmetic: {
+    name: "Pointer Basics",
+    description: "Working with multiple pointers",
+    code: `int x = 5;
+int* p1 = &x;
+int* p2 = p1;
+*p2 = 10;
+int* heap = (int*)malloc(sizeof(int));
+*heap = 20;
+free(heap);`
+  },
+
+  memory_leak: {
+    name: "Memory Leak Demo",
+    description: "See how memory leaks occur in C",
+    code: `int* ptr1 = (int*)malloc(sizeof(int));
+*ptr1 = 100;
+int* ptr2 = (int*)malloc(sizeof(int));
+*ptr2 = 200;
+free(ptr1);`
+  },
+
+  mixed_types: {
+    name: "Mixed Types",
+    description: "Different data types in memory",
+    code: `int x = 42;
+float pi = 3.14;
+double e = 2.718;
+char c = 'A';
+double* dptr = &e;
+*dptr = 2.5;`
+  },
+};
+
 export default function MemoryMapPage() {
   const [showWelcome, setShowWelcome] = useState(true);
-  const [code, setCode] = useState(CODE_EXAMPLES.basic.code);
-  const [codeHistory, setCodeHistory] = useState([CODE_EXAMPLES.basic.code]);
+  const [language, setLanguage] = useState('cpp');
+  const [code, setCode] = useState(`double num = 6.5;
+int* ptr = new int(42);
+*ptr = 100;
+delete ptr;
+ptr = nullptr;`);
+  const [codeHistory, setCodeHistory] = useState([`double num = 6.5;
+int* ptr = new int(42);
+*ptr = 100;
+delete ptr;
+ptr = nullptr;`]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [executionSteps, setExecutionSteps] = useState([]);
   const [currentStep, setCurrentStep] = useState(0);
@@ -239,17 +335,34 @@ export default function MemoryMapPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [historyIndex, codeHistory]);
 
+  const handleLanguageChange = (newLang) => {
+    setLanguage(newLang);
+    const examples = newLang === 'cpp' ? CPP_EXAMPLES : C_EXAMPLES;
+    const newCode = examples.basic.code;
+    setCode(newCode);
+    setCodeHistory([newCode]);
+    setHistoryIndex(0);
+    setExecutionSteps([]);
+    setCurrentStep(0);
+    setExplanations({});
+    setError(null);
+    setMemoryLeaks([]);
+    setDanglingPointers([]);
+    setBreakpoints(new Set());
+    setWatchList([]);
+  };
+
   const handleRun = async () => {
     setError(null);
     setMemoryLeaks([]);
     setDanglingPointers([]);
     try {
-      console.log("Parsing code:", code);
-      const steps = parseAndSimulateCpp(code);
+      console.log(`Parsing ${language} code:`, code);
+      const steps = language === 'cpp' ? parseAndSimulateCpp(code) : parseAndSimulateC(code);
       console.log("Generated steps:", steps);
       
       if (steps.length === 0) {
-        setError("No executable code found. Please check your C++ syntax.");
+        setError(`No executable code found. Please check your ${language === 'cpp' ? 'C++' : 'C'} syntax.`);
         return;
       }
       
@@ -292,21 +405,57 @@ export default function MemoryMapPage() {
     try {
       for (let i = 0; i < steps.length; i++) {
         const step = steps[i];
-        const prompt = `You are teaching a beginner C++ student about memory management. 
-Explain what happens in this line of C++ code in simple, friendly language (2-3 sentences max):
+        const fullCode = code;
+        
+        const langName = language === 'cpp' ? 'C++' : 'C';
+        const prompt = `You are an expert ${langName} instructor teaching memory management and advanced concepts.
+Analyze this line of ${langName} code and provide a comprehensive but accessible explanation.
 
-Line: "${step.line}"
+**Current Line:** "${step.line}"
 
-Current memory state before this line:
+**Full Code Context:**
+\`\`\`${language === 'cpp' ? 'cpp' : 'c'}
+${fullCode}
+\`\`\`
+
+**Current Memory State:**
 - Stack variables: ${JSON.stringify(step.memoryState.stack)}
 - Heap allocations: ${JSON.stringify(step.memoryState.heap)}
+- Pointers: ${JSON.stringify(step.memoryState.pointers)}
 
-Focus on:
-1. What memory operation is happening (allocation, assignment, pointer manipulation, array access, struct/class usage, reference, function call, etc.)
-2. Where in memory it affects (stack or heap)
-3. What the student should understand about this operation
+**Provide insights on (where applicable):**
 
-Keep it conversational and encouraging. Use phrases like "Here we...", "Notice how...", "This creates...".`;
+1. **Memory Operation**: What's happening in memory (stack/heap allocation, pointer manipulation, etc.)
+
+2. **Data Structure Insights**: If the code involves or builds toward data structures (linked lists, trees, graphs, dynamic arrays), explain:
+   - How nodes/elements are connected
+   - Memory layout implications
+   - Time/space complexity hints
+
+3. **Compiler Optimizations**: Mention any likely compiler optimizations:
+   - Return Value Optimization (RVO/NRVO)
+   - Copy elision
+   - Inlining possibilities
+   - Register allocation hints
+   - Dead code elimination
+
+4. **${language === 'cpp' ? 'C++' : 'C'} Pitfalls & Best Practices**: Warn about potential issues:
+   - Undefined behavior risks (uninitialized variables, buffer overflows, integer overflow)
+   - Race conditions (if threading context is implied)
+   - Object slicing
+   - Exception safety concerns
+   - Rule of Three/Five/Zero violations
+   - Dangling references
+   - Use-after-free risks
+
+5. **Modern Alternatives**: Briefly suggest safer alternatives when applicable (${language === 'cpp' ? 'smart pointers, containers, RAII patterns' : 'better memory management practices, using wrapper functions'}).
+
+**Format your response as:**
+- Start with a simple 1-2 sentence explanation of what the line does
+- Add a "💡 Deeper Insight:" section for advanced concepts (keep it concise)
+- Add a "⚠️ Watch Out:" section only if there's a genuine pitfall risk
+
+Keep the tone friendly and educational. Total response should be 3-6 sentences.`;
 
         const result = await base44.integrations.Core.InvokeLLM({
           prompt: prompt,
@@ -397,7 +546,8 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
   };
 
   const handleLoadExample = (exampleKey) => {
-    const newCode = CODE_EXAMPLES[exampleKey].code;
+    const examples = language === 'cpp' ? CPP_EXAMPLES : C_EXAMPLES;
+    const newCode = examples[exampleKey].code;
     setCode(newCode);
     setCodeHistory([...codeHistory, newCode]);
     setHistoryIndex(codeHistory.length);
@@ -465,13 +615,13 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
                     <Code2 className="w-10 h-10" />
                   </motion.div>
                   <h1 className="text-4xl font-bold mb-3">Welcome to Memory Map</h1>
-                  <p className="text-xl text-blue-100">Learn C++ Memory Management Visually</p>
+                  <p className="text-xl text-blue-100">Learn C/C++ Memory Management Visually</p>
                 </div>
                 
                 <div className="p-8 space-y-6">
                   <div className={`${secondaryTextClass} text-lg leading-relaxed`}>
                     <p className="mb-4">
-                      Memory Map helps you <strong className="text-purple-600">understand</strong> how C++ manages memory by 
+                      Memory Map helps you <strong className="text-purple-600">understand</strong> how C and C++ manage memory by 
                       <strong className="text-blue-600"> visualizing</strong> every step of your code execution.
                     </p>
                   </div>
@@ -564,9 +714,21 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-white">Memory Map</h1>
-                <p className="text-blue-100">Visualize C++ Memory: Stack, Heap, Pointers, Arrays, Structs, Vectors & Functions</p>
+                <p className="text-blue-100">Visualize C/C++ Memory: Stack, Heap, Pointers, Arrays, Structs & More</p>
               </div>
             </div>
+            
+            {/* Language Tabs */}
+            <Tabs value={language} onValueChange={handleLanguageChange} className="w-auto">
+              <TabsList className="bg-white/20 border border-white/30">
+                <TabsTrigger value="cpp" className="data-[state=active]:bg-white data-[state=active]:text-purple-700 text-white font-semibold px-6">
+                  C++
+                </TabsTrigger>
+                <TabsTrigger value="c" className="data-[state=active]:bg-white data-[state=active]:text-blue-700 text-white font-semibold px-6">
+                  C
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
             
             {/* Control Buttons */}
             <div className="flex items-center gap-3 flex-wrap">
@@ -574,7 +736,7 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
                 onClick={() => setShowHelp(true)}
                 size="lg"
                 variant="outline"
-                className="bg-white/90 hover:bg-white border-2 border-white/50"
+                className="bg-white/90 hover:bg-white border-2 border-white/50 gap-2"
               >
                 <BookOpen className="w-5 h-5" />
                 <span className="hidden sm:inline">Help</span>
@@ -617,7 +779,7 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
                   <SelectValue placeholder="Load Example" />
                 </SelectTrigger>
                 <SelectContent className="max-h-96">
-                  {Object.entries(CODE_EXAMPLES).map(([key, example]) => (
+                  {Object.entries(language === 'cpp' ? CPP_EXAMPLES : C_EXAMPLES).map(([key, example]) => (
                     <SelectItem key={key} value={key}>
                       <div className="flex flex-col">
                         <span className="font-semibold">{example.name}</span>
@@ -796,8 +958,8 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
             <Card className={`p-6 ${cardClass} shadow-2xl border-2`}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className={`text-xl font-bold ${textClass} flex items-center gap-2`}>
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  C++ Code Editor
+                  <div className={`w-2 h-2 ${language === 'cpp' ? 'bg-purple-500' : 'bg-blue-500'} rounded-full animate-pulse`}></div>
+                  {language === 'cpp' ? 'C++' : 'C'} Code Editor
                 </h2>
                 <span className="text-xs font-semibold text-purple-600 bg-purple-100 px-3 py-1 rounded-full">
                   Max 30 lines
@@ -811,6 +973,7 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
                 isExecuting={executionSteps.length > 0}
                 breakpoints={breakpoints}
                 onToggleBreakpoint={handleToggleBreakpoint}
+                language={language}
               />
             </Card>
 
@@ -896,7 +1059,7 @@ Keep it conversational and encouraging. Use phrases like "Here we...", "Notice h
                       <span className="bg-purple-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold">1</span>
                       <span className={`font-semibold ${textClass}`}>Write Code</span>
                     </div>
-                    <p className={`text-sm ${secondaryTextClass}`}>Enter C++ code or load an example from the dropdown</p>
+                    <p className={`text-sm ${secondaryTextClass}`}>Enter {language === 'cpp' ? 'C++' : 'C'} code or load an example from the dropdown</p>
                   </div>
 
                   <div className={`${isDarkMode ? 'bg-gray-700/50' : 'bg-white/50'} rounded-lg p-3`}>

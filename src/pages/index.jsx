@@ -1,12 +1,13 @@
 import Layout from "./Layout.jsx";
+
 import MemoryMap from "./MemoryMap";
-import LandingPage from "./LandingPage";
 
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
+    
     MemoryMap: MemoryMap,
-    LandingPage: LandingPage
+    
 }
 
 function _getCurrentPage(url) {
@@ -18,10 +19,8 @@ function _getCurrentPage(url) {
         urlLastPart = urlLastPart.split('?')[0];
     }
 
-    if (url.includes('/app')) {
-        return 'MemoryMap';
-    }
-    return 'LandingPage';
+    const pageName = Object.keys(PAGES).find(page => page.toLowerCase() === urlLastPart.toLowerCase());
+    return pageName || Object.keys(PAGES)[0];
 }
 
 // Create a wrapper component that uses useLocation inside the Router context
@@ -31,9 +30,13 @@ function PagesContent() {
     
     return (
         <Layout currentPageName={currentPage}>
-            <Routes>
-                <Route path="/" element={<LandingPage />} />
-                <Route path="/app" element={<MemoryMap />} />
+            <Routes>            
+                
+                    <Route path="/" element={<MemoryMap />} />
+                
+                
+                <Route path="/MemoryMap" element={<MemoryMap />} />
+                
             </Routes>
         </Layout>
     );

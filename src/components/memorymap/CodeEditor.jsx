@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 
-export default function CodeEditor({ code, onChange, currentLine, isDarkMode, isExecuting, breakpoints, onToggleBreakpoint }) {
+export default function CodeEditor({ code, onChange, currentLine, isDarkMode, isExecuting, breakpoints, onToggleBreakpoint, language = 'cpp' }) {
   const textareaRef = useRef(null);
   const lines = code.split('\n');
   const [cursorLine, setCursorLine] = useState(1);
@@ -48,8 +48,13 @@ export default function CodeEditor({ code, onChange, currentLine, isDarkMode, is
 
   // Tokenize and highlight a line of code
   const tokenizeLine = (line) => {
-    const types = ['int', 'float', 'double', 'char', 'bool', 'long', 'short', 'unsigned', 'signed', 'std::string', 'string', 'std::vector'];
-    const keywords = ['struct', 'class', 'new', 'delete', 'return', 'if', 'else', 'while', 'for', 'break', 'continue', 'const', 'static', 'void', 'public', 'private', 'protected', 'nullptr', 'NULL'];
+    const cppTypes = ['int', 'float', 'double', 'char', 'bool', 'long', 'short', 'unsigned', 'signed', 'std::string', 'string', 'std::vector'];
+    const cTypes = ['int', 'float', 'double', 'char', 'long', 'short', 'unsigned', 'signed', 'size_t', 'void'];
+    const cppKeywords = ['struct', 'class', 'new', 'delete', 'return', 'if', 'else', 'while', 'for', 'break', 'continue', 'const', 'static', 'void', 'public', 'private', 'protected', 'nullptr', 'NULL'];
+    const cKeywords = ['struct', 'return', 'if', 'else', 'while', 'for', 'break', 'continue', 'const', 'static', 'void', 'malloc', 'calloc', 'realloc', 'free', 'sizeof', 'NULL'];
+    
+    const types = language === 'cpp' ? cppTypes : cTypes;
+    const keywords = language === 'cpp' ? cppKeywords : cKeywords;
     
     const tokens = [];
     let current = '';
@@ -201,7 +206,7 @@ export default function CodeEditor({ code, onChange, currentLine, isDarkMode, is
               minHeight: '500px',
               maxHeight: '880px',
             }}
-            placeholder="Enter your C++ code here... (max 30 lines)"
+            placeholder={`Enter your ${language === 'cpp' ? 'C++' : 'C'} code here... (max 30 lines)`}
             spellCheck={false}
           />
         </div>
@@ -213,7 +218,10 @@ export default function CodeEditor({ code, onChange, currentLine, isDarkMode, is
           {lines.length} / 30 lines
         </span>
         <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-          Supports: int, float, double, char, bool, std::string, std::vector, pointers, new/delete, arrays, structs, references
+          {language === 'cpp' 
+            ? 'Supports: int, float, double, char, bool, std::string, std::vector, pointers, new/delete, arrays, structs, references'
+            : 'Supports: int, float, double, char, pointers, malloc/calloc/free, arrays, structs'
+          }
         </span>
       </div>
     </div>
