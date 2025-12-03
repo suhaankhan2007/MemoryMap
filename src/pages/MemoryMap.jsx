@@ -2,7 +2,8 @@ import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Play, SkipForward, RotateCcw, Lightbulb, Code2, Zap, Pause, BookOpen, AlertTriangle, TrendingUp, Moon, Sun, Undo, Redo } from "lucide-react";
+import { Play, SkipForward, RotateCcw, Lightbulb, Zap, Pause, BookOpen, AlertTriangle, TrendingUp, Moon, Sun, Undo, Redo } from "lucide-react";
+import { MemoryMapLogo } from "@/components/ui/memory-map-logo";
 import { motion, AnimatePresence } from "framer-motion";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -610,9 +611,9 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ delay: 0.2, type: "spring" }}
-                    className="w-20 h-20 mx-auto mb-4 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center"
+                    className="w-20 h-20 mx-auto mb-4 bg-white rounded-2xl flex items-center justify-center shadow-xl"
                   >
-                    <Code2 className="w-10 h-10" />
+                    <MemoryMapLogo className="w-14 h-14" />
                   </motion.div>
                   <h1 className="text-4xl font-bold mb-3">Welcome to Memory Map</h1>
                   <p className="text-xl text-blue-100">Learn C/C++ Memory Management Visually</p>
@@ -709,8 +710,8 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
         <div className="max-w-[1800px] mx-auto px-6 py-6">
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg">
-                <Code2 className="w-8 h-8 text-white" />
+              <div className="w-14 h-14 bg-white rounded-xl flex items-center justify-center shadow-lg">
+                <MemoryMapLogo className="w-10 h-10" />
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-white">Memory Map</h1>
