@@ -2,10 +2,11 @@ import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Play, SkipForward, RotateCcw, Lightbulb, Zap, Pause, BookOpen, AlertTriangle, TrendingUp, Moon, Sun, Undo, Redo } from "lucide-react";
+import { Play, SkipForward, RotateCcw, Lightbulb, Zap, Pause, BookOpen, AlertTriangle, TrendingUp, Moon, Sun, Undo, Redo, Share2, Trophy, Home, ChevronDown } from "lucide-react";
 import { MemoryMapLogo } from "@/components/ui/memory-map-logo";
 import { motion, AnimatePresence } from "framer-motion";
 import { Slider } from "@/components/ui/slider";
+import { Link } from "react-router-dom";
 import {
   Select,
   SelectContent,
@@ -23,7 +24,12 @@ import BreakpointPanel from "../components/memorymap/BreakpointPanel";
 import { parseAndSimulateCpp } from "../components/memorymap/cppSimulator";
 import { parseAndSimulateC } from "../components/memorymap/cSimulator";
 import HelpModal from "../components/memorymap/HelpModal";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import LeetCodePanel from "../components/memorymap/LeetCodePanel";
+import ExportModal from "../components/memorymap/ExportModal";
+import ComplexityBadge from "../components/memorymap/ComplexityBadge";
+import LearningSidebar from "../components/memorymap/LearningSidebar";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { GraduationCap } from "lucide-react";
 
 const CPP_EXAMPLES = {
   basic: {
@@ -171,6 +177,77 @@ return result;
 }
 int value = allocate(42);`
   },
+
+  linked_list: {
+    name: "🔗 Linked List",
+    description: "Build and visualize a linked list",
+    code: `struct Node {
+  int data;
+  Node* next;
+};
+
+Node* head = new Node;
+head->data = 1;
+
+Node* second = new Node;
+second->data = 2;
+head->next = second;
+
+Node* third = new Node;
+third->data = 3;
+second->next = third;
+third->next = nullptr;`
+  },
+
+  binary_tree: {
+    name: "🌳 Binary Tree",
+    description: "Build and visualize a binary tree",
+    code: `struct TreeNode {
+  int val;
+  TreeNode* left;
+  TreeNode* right;
+};
+
+TreeNode* root = new TreeNode;
+root->val = 10;
+
+TreeNode* left = new TreeNode;
+left->val = 5;
+root->left = left;
+left->left = nullptr;
+left->right = nullptr;
+
+TreeNode* right = new TreeNode;
+right->val = 15;
+root->right = right;
+right->left = nullptr;
+right->right = nullptr;`
+  },
+
+  doubly_linked: {
+    name: "🔗🔗 Doubly Linked List",
+    description: "Linked list with prev and next pointers",
+    code: `struct Node {
+  int data;
+  Node* prev;
+  Node* next;
+};
+
+Node* head = new Node;
+head->data = 1;
+head->prev = nullptr;
+
+Node* second = new Node;
+second->data = 2;
+head->next = second;
+second->prev = head;
+
+Node* third = new Node;
+third->data = 3;
+second->next = third;
+third->prev = second;
+third->next = nullptr;`
+  },
 };
 
 const C_EXAMPLES = {
@@ -287,6 +364,13 @@ ptr = nullptr;`]);
   const [breakpoints, setBreakpoints] = useState(new Set());
   const [watchList, setWatchList] = useState([]);
   const intervalRef = React.useRef(null);
+  
+  // LeetCode Mode State
+  const [leetCodeOpen, setLeetCodeOpen] = useState(false);
+  const [currentProblem, setCurrentProblem] = useState(null);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [learningSidebarOpen, setLearningSidebarOpen] = useState(false); // Collapsed by default for better view
+  const [featuredTab, setFeaturedTab] = useState("memai"); // 'memai', 'leetcode', 'learn'
 
   useEffect(() => {
     const savedMode = localStorage.getItem('memorymap-dark-mode');
@@ -560,6 +644,22 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
     setDanglingPointers([]);
     setBreakpoints(new Set());
     setWatchList([]);
+    setCurrentProblem(null); // Clear LeetCode problem
+  };
+
+  const handleLoadLeetCodeProblem = (problemCode, problem) => {
+    setCode(problemCode);
+    setCodeHistory([...codeHistory, problemCode]);
+    setHistoryIndex(codeHistory.length);
+    setExecutionSteps([]);
+    setCurrentStep(0);
+    setExplanations({});
+    setError(null);
+    setMemoryLeaks([]);
+    setDanglingPointers([]);
+    setBreakpoints(new Set());
+    setWatchList([]);
+    setCurrentProblem(problem);
   };
 
   useEffect(() => {
@@ -705,6 +805,14 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
       
       <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} isDarkMode={isDarkMode} />
       
+      <ExportModal 
+        isOpen={showExportModal} 
+        onClose={() => setShowExportModal(false)} 
+        executionSteps={executionSteps}
+        code={code}
+        isDarkMode={isDarkMode}
+      />
+      
       {/* Header */}
       <header className={`${headerClass} shadow-xl`}>
         <div className="max-w-[1800px] mx-auto px-6 py-6">
@@ -714,8 +822,21 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
                 <MemoryMapLogo className="w-10 h-10" />
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-white">Memory Map</h1>
-                <p className="text-blue-100">Visualize C/C++ Memory: Stack, Heap, Pointers, Arrays, Structs & More</p>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-3xl font-bold text-white">Memory Map</h1>
+                  {currentProblem && (
+                    <span className="px-3 py-1 bg-yellow-400 text-gray-900 text-sm font-bold rounded-full flex items-center gap-1.5">
+                      <Trophy className="w-4 h-4" />
+                      #{currentProblem.id} {currentProblem.title}
+                    </span>
+                  )}
+                </div>
+                <p className="text-blue-100">
+                  {currentProblem 
+                    ? `${currentProblem.pattern} • ${currentProblem.timeComplexity} Time • ${currentProblem.spaceComplexity} Space`
+                    : 'Visualize C/C++ Memory: Stack, Heap, Pointers, Arrays, Structs & More'
+                  }
+                </p>
               </div>
             </div>
             
@@ -733,6 +854,89 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
             
             {/* Control Buttons */}
             <div className="flex items-center gap-3 flex-wrap">
+              <Link to="/">
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="bg-white/90 hover:bg-white border-2 border-white/50"
+                  title="Back to Home"
+                >
+                  <Home className="w-5 h-5" />
+                </Button>
+              </Link>
+
+              {/* Learning Hub Tab Buttons - Highlighted */}
+              <div className="flex items-center bg-white/20 rounded-xl p-1 backdrop-blur-sm border border-white/30">
+                <Button
+                  onClick={() => {
+                    setFeaturedTab('memai');
+                    setLearningSidebarOpen(true);
+                  }}
+                  size="sm"
+                  variant="ghost"
+                  className={`gap-1.5 rounded-lg transition-all ${
+                    featuredTab === 'memai' && learningSidebarOpen
+                      ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg' 
+                      : 'text-white hover:bg-white/20'
+                  }`}
+                  title="Mem AI - Your AI Tutor"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span className="hidden sm:inline font-semibold">🧠 Mem AI</span>
+                  <span className="sm:hidden">🧠</span>
+                </Button>
+
+                <Button
+                  onClick={() => {
+                    setFeaturedTab('leetcode');
+                    setLearningSidebarOpen(true);
+                  }}
+                  size="sm"
+                  variant="ghost"
+                  className={`gap-1.5 rounded-lg transition-all ${
+                    featuredTab === 'leetcode' && learningSidebarOpen
+                      ? 'bg-gradient-to-r from-yellow-400 to-orange-500 text-gray-900 shadow-lg' 
+                      : 'text-white hover:bg-white/20'
+                  }`}
+                  title="LeetCode Mode"
+                >
+                  <Trophy className="w-4 h-4" />
+                  <span className="hidden sm:inline font-semibold">🏆 LeetCode</span>
+                  <span className="sm:hidden">🏆</span>
+                </Button>
+
+                <Button
+                  onClick={() => {
+                    setFeaturedTab('learn');
+                    setLearningSidebarOpen(true);
+                  }}
+                  size="sm"
+                  variant="ghost"
+                  className={`gap-1.5 rounded-lg transition-all ${
+                    featuredTab === 'learn' && learningSidebarOpen
+                      ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-lg' 
+                      : 'text-white hover:bg-white/20'
+                  }`}
+                  title="Learning Resources"
+                >
+                  <GraduationCap className="w-4 h-4" />
+                  <span className="hidden sm:inline font-semibold">📚 Learn</span>
+                  <span className="sm:hidden">📚</span>
+                </Button>
+              </div>
+
+              <Button
+                onClick={() => setShowExportModal(true)}
+                size="lg"
+                variant="outline"
+                className="bg-white/90 hover:bg-white border-2 border-white/50 gap-2"
+                disabled={executionSteps.length === 0}
+                title="Export & Share"
+              >
+                <Share2 className="w-5 h-5" />
+                <span className="hidden sm:inline">Export</span>
+              </Button>
+
               <Button
                 onClick={() => setShowHelp(true)}
                 size="lg"
@@ -951,14 +1155,191 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
         </div>
       )}
 
-      {/* Main Content */}
-      <div className="max-w-[1800px] mx-auto px-6 py-8">
-        <div className="grid lg:grid-cols-2 gap-8">
+      {/* ⭐ FEATURED LEARNING HUB - Collapsible Top Banner */}
+      <div className="max-w-[1800px] mx-auto px-6 pt-6">
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`rounded-2xl overflow-hidden shadow-2xl border-2 ${
+            isDarkMode 
+              ? 'bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 border-purple-500' 
+              : 'bg-gradient-to-br from-indigo-100 via-purple-100 to-pink-100 border-purple-400'
+          }`}
+        >
+          {/* Compact Header - Always Visible */}
+          <button
+            onClick={() => setLearningSidebarOpen(!learningSidebarOpen)}
+            className={`w-full p-3 ${
+              isDarkMode 
+                ? 'bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500' 
+                : 'bg-gradient-to-r from-purple-500 via-pink-500 to-orange-400'
+            } text-white hover:brightness-110 transition-all`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <motion.div 
+                  animate={{ rotate: learningSidebarOpen ? [0, 10, -10, 0] : 0 }}
+                  transition={{ duration: 2, repeat: learningSidebarOpen ? Infinity : 0 }}
+                  className="text-xl"
+                >
+                  ✨
+                </motion.div>
+                <div className="text-left">
+                  <h3 className="font-bold text-sm md:text-base">Learning Hub</h3>
+                  <p className="text-[10px] md:text-xs text-white/80 hidden sm:block">
+                    Resources • LeetCode • AI Explanations
+                  </p>
+                </div>
+                
+                {/* Quick Tab Buttons */}
+                <div className="hidden md:flex items-center gap-2 ml-4">
+                  {[
+                    { id: 'memai', icon: '🧠', label: 'Mem AI' },
+                    { id: 'leetcode', icon: '🏆', label: 'LeetCode' },
+                    { id: 'learn', icon: '📚', label: 'Learn' },
+                  ].map((tab) => (
+                    <span
+                      key={tab.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFeaturedTab(tab.id);
+                        setLearningSidebarOpen(true);
+                      }}
+                      className={`px-3 py-1 rounded-full text-xs font-bold cursor-pointer transition-all ${
+                        featuredTab === tab.id && learningSidebarOpen
+                          ? 'bg-white text-purple-700 shadow-lg'
+                          : 'bg-white/20 hover:bg-white/30'
+                      }`}
+                    >
+                      {tab.icon} {tab.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3">
+                {currentProblem && (
+                  <span className="hidden sm:flex items-center gap-1 px-2 py-1 bg-yellow-400 text-gray-900 rounded-full text-xs font-bold">
+                    <Trophy className="w-3 h-3" />
+                    #{currentProblem.id}
+                  </span>
+                )}
+                <span className="px-2 py-1 bg-white/20 rounded-full text-xs font-bold backdrop-blur-sm">
+                  🔥 Featured
+                </span>
+                <motion.div
+                  animate={{ rotate: learningSidebarOpen ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <ChevronDown className="w-5 h-5" />
+                </motion.div>
+              </div>
+            </div>
+          </button>
+
+          {/* Expandable Content */}
+          <AnimatePresence>
+            {learningSidebarOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="overflow-hidden"
+              >
+                {/* Tabs */}
+                <Tabs value={featuredTab} onValueChange={setFeaturedTab} className="w-full">
+                  <TabsList className={`w-full grid grid-cols-3 h-12 rounded-none ${
+                    isDarkMode ? 'bg-gray-800/50' : 'bg-white/50'
+                  }`}>
+                    <TabsTrigger 
+                      value="memai" 
+                      className={`gap-2 text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
+                    >
+                      <Zap className="w-4 h-4" />
+                      <span className="hidden sm:inline">🧠 Mem AI</span>
+                      <span className="sm:hidden">🧠</span>
+                    </TabsTrigger>
+                    <TabsTrigger 
+                      value="leetcode" 
+                      className={`gap-2 text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-500 data-[state=active]:to-orange-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
+                    >
+                      <Trophy className="w-4 h-4" />
+                      <span className="hidden sm:inline">🏆 LeetCode</span>
+                      <span className="sm:hidden">🏆</span>
+                    </TabsTrigger>
+                    <TabsTrigger 
+                      value="learn" 
+                      className={`gap-2 text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-indigo-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
+                    >
+                      <GraduationCap className="w-4 h-4" />
+                      <span className="hidden sm:inline">📚 Learn</span>
+                      <span className="sm:hidden">📚</span>
+                    </TabsTrigger>
+                  </TabsList>
+
+                  {/* Tab Contents - Horizontal Layout */}
+                  <div className={`p-4 ${isDarkMode ? 'bg-gray-800/30' : 'bg-white/30'} max-h-[300px] overflow-y-auto`}>
+                    <TabsContent value="memai" className="m-0">
+                      <ExplanationPanel
+                        explanation={currentExplanation}
+                        isLoading={isGeneratingExplanations}
+                        stepNumber={currentStep + 1}
+                        totalSteps={executionSteps.length}
+                        isDarkMode={isDarkMode}
+                        embedded={true}
+                      />
+                    </TabsContent>
+
+                    <TabsContent value="leetcode" className="m-0">
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                          <LeetCodePanel
+                            onLoadProblem={handleLoadLeetCodeProblem}
+                            currentProblem={currentProblem}
+                            isDarkMode={isDarkMode}
+                            isOpen={true}
+                            onToggle={() => {}}
+                          />
+                        </div>
+                        {currentProblem && (
+                          <div>
+                            <ComplexityBadge
+                              timeComplexity={currentProblem.timeComplexity}
+                              spaceComplexity={currentProblem.spaceComplexity}
+                              pattern={currentProblem.pattern}
+                              isDarkMode={isDarkMode}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="learn" className="m-0">
+                      <LearningSidebar
+                        code={code}
+                        currentProblem={currentProblem}
+                        isDarkMode={isDarkMode}
+                        isOpen={true}
+                        onToggle={() => {}}
+                      />
+                    </TabsContent>
+                  </div>
+                </Tabs>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </div>
+
+      {/* Main Content - Code Editor & Visualization Side by Side */}
+      <div className="max-w-[1800px] mx-auto px-6 py-6">
+        <div className="grid lg:grid-cols-2 gap-6">
           {/* Left: Code Editor */}
-          <div className="space-y-6">
-            <Card className={`p-6 ${cardClass} shadow-2xl border-2`}>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className={`text-xl font-bold ${textClass} flex items-center gap-2`}>
+          <div className="space-y-4">
+            <Card className={`p-5 ${cardClass} shadow-2xl border-2`}>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className={`text-lg font-bold ${textClass} flex items-center gap-2`}>
                   <div className={`w-2 h-2 ${language === 'cpp' ? 'bg-purple-500' : 'bg-blue-500'} rounded-full animate-pulse`}></div>
                   {language === 'cpp' ? 'C++' : 'C'} Code Editor
                 </h2>
@@ -978,18 +1359,9 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
               />
             </Card>
 
-            {/* Explanation Panel */}
-            <ExplanationPanel
-              explanation={currentExplanation}
-              isLoading={isGeneratingExplanations}
-              stepNumber={currentStep + 1}
-              totalSteps={executionSteps.length}
-              isDarkMode={isDarkMode}
-            />
-
-            {/* Debugging Panels */}
+            {/* Debugging Panels - Compact */}
             {executionSteps.length > 0 && (
-              <div className="grid md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-3 gap-3">
                 <CallStackPanel
                   callStack={currentMemoryState.callStack}
                   isDarkMode={isDarkMode}
@@ -1008,7 +1380,7 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
                 />
               </div>
             )}
-            </div>
+          </div>
 
           {/* Right: Memory Visualization */}
           <div>

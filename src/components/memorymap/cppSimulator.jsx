@@ -1,6 +1,7 @@
 /**
  * C++ Memory Simulator - Enhanced Version
  * Supports: primitives, pointers, arrays, functions, references, structs/classes, std::vector
+ * Enhanced: Linked list detection, binary tree detection, data structure pattern recognition
  */
 
 let addressCounter = 0x1000;
@@ -18,10 +19,39 @@ function resetAddressCounter() {
 const SUPPORTED_TYPES = [
   'int', 'float', 'double', 'char', 'bool',
   'long', 'short', 'unsigned', 'signed',
-  'std::string', 'string', 'void', 'std::vector'
+  'std::string', 'string', 'void', 'std::vector',
+  'Node', 'ListNode', 'TreeNode' // Common DS node types
 ];
 
 const TYPE_PATTERN = SUPPORTED_TYPES.join('|').replace(/\./g, '\\.');
+
+/**
+ * Detect if a struct is a linked list node
+ */
+function isLinkedListNode(structDef) {
+  if (!structDef || !structDef.members) return false;
+  const hasNextPointer = structDef.members.some(m => 
+    (m.name === 'next' || m.name === 'Next') && m.type.includes('*')
+  );
+  const hasPrevPointer = structDef.members.some(m => 
+    (m.name === 'prev' || m.name === 'Prev' || m.name === 'previous') && m.type.includes('*')
+  );
+  return hasNextPointer ? (hasPrevPointer ? 'doubly' : 'singly') : false;
+}
+
+/**
+ * Detect if a struct is a binary tree node
+ */
+function isBinaryTreeNode(structDef) {
+  if (!structDef || !structDef.members) return false;
+  const hasLeft = structDef.members.some(m => 
+    (m.name === 'left' || m.name === 'Left') && m.type.includes('*')
+  );
+  const hasRight = structDef.members.some(m => 
+    (m.name === 'right' || m.name === 'Right') && m.type.includes('*')
+  );
+  return hasLeft && hasRight;
+}
 
 /**
  * Parse and simulate C++ code execution
@@ -50,7 +80,7 @@ export function parseAndSimulateCpp(code) {
   for (let i = 0; i < allLines.length; i++) {
     const line = allLines[i].trim();
     
-    // Struct/Class definition
+    // Struct/Class definition - enhanced with pointer member detection
     const structMatch = line.match(/^(?:struct|class)\s+(\w+)\s*\{/);
     if (structMatch) {
       const structName = structMatch[1];
@@ -59,14 +89,31 @@ export function parseAndSimulateCpp(code) {
       
       while (j < allLines.length && !allLines[j].trim().includes('}')) {
         const memberLine = allLines[j].trim();
+        // Match regular members
         const memberMatch = memberLine.match(new RegExp(`^\\s*(${TYPE_PATTERN}(?:\\s*<\\s*\\w+\\s*>)?)\\s+(\\w+)\\s*;`));
         if (memberMatch) {
           members.push({ type: memberMatch[1], name: memberMatch[2] });
         }
+        // Match pointer members (for linked list/tree nodes)
+        const ptrMemberMatch = memberLine.match(/^\s*(\w+)\s*\*\s*(\w+)\s*;/);
+        if (ptrMemberMatch) {
+          members.push({ type: `${ptrMemberMatch[1]}*`, name: ptrMemberMatch[2], isPointer: true });
+        }
         j++;
       }
       
-      structs.set(structName, { members });
+      // Detect data structure type
+      const structDef = { members };
+      const linkedListType = isLinkedListNode(structDef);
+      const isTree = isBinaryTreeNode(structDef);
+      
+      structs.set(structName, { 
+        members,
+        isLinkedList: !!linkedListType,
+        linkedListType: linkedListType, // 'singly' or 'doubly'
+        isBinaryTree: isTree,
+        dataStructureType: isTree ? 'binary_tree' : (linkedListType ? 'linked_list' : 'struct')
+      });
     }
     
     // Function definition
@@ -446,6 +493,8 @@ export function parseAndSimulateCpp(code) {
             structDef.members.forEach(member => {
               if (member.type.startsWith('std::vector')) {
                 memberValues[member.name] = [];
+              } else if (member.isPointer || member.type.includes('*')) {
+                memberValues[member.name] = null; // nullptr for pointer members
               } else {
                 memberValues[member.name] = getDefaultValue(member.type);
               }
@@ -458,6 +507,11 @@ export function parseAndSimulateCpp(code) {
               address,
               isStruct: true,
               members: structDef.members,
+              // Data structure metadata
+              isLinkedListNode: structDef.isLinkedList,
+              linkedListType: structDef.linkedListType,
+              isBinaryTreeNode: structDef.isBinaryTree,
+              dataStructureType: structDef.dataStructureType,
             });
             
             addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
@@ -467,7 +521,62 @@ export function parseAndSimulateCpp(code) {
         }
       }
       
-      // Member access
+      // Heap allocation of struct nodes (e.g., Node* head = new Node;)
+      if (!parsed) {
+        for (const [structName, structDef] of structs.entries()) {
+          const heapStructPattern = new RegExp(`^\\s*${structName}\\s*\\*\\s*(\\w+)\\s*=\\s*new\\s+${structName}(?:\\s*\\(\\s*\\))?\\s*;?`);
+          const heapStructMatch = trimmedLine.match(heapStructPattern);
+          if (heapStructMatch) {
+            const [, ptrName] = heapStructMatch;
+            const stackAddress = generateAddress();
+            const heapAddress = generateAddress();
+            
+            const memberValues = {};
+            structDef.members.forEach(member => {
+              if (member.type.startsWith('std::vector')) {
+                memberValues[member.name] = [];
+              } else if (member.isPointer || member.type.includes('*')) {
+                memberValues[member.name] = null;
+              } else {
+                memberValues[member.name] = getDefaultValue(member.type);
+              }
+            });
+            
+            // Add to heap
+            heap.set(heapAddress, {
+              type: structName,
+              value: memberValues,
+              isDeleted: false,
+              isStruct: true,
+              members: structDef.members,
+              isLinkedListNode: structDef.isLinkedList,
+              linkedListType: structDef.linkedListType,
+              isBinaryTreeNode: structDef.isBinaryTree,
+              dataStructureType: structDef.dataStructureType,
+            });
+            
+            memoryLeaks.add(heapAddress);
+            
+            // Add pointer to stack
+            currentFrame.variables.set(ptrName, {
+              name: ptrName,
+              type: `${structName}*`,
+              value: heapAddress,
+              address: stackAddress,
+              isNodePointer: structDef.isLinkedList || structDef.isBinaryTree,
+              dataStructureType: structDef.dataStructureType,
+            });
+            
+            pointers.set(ptrName, heapAddress);
+            
+            addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+            parsed = true;
+            break;
+          }
+        }
+      }
+      
+      // Member access (dot notation)
       if (!parsed) {
         const memberAssignMatch = trimmedLine.match(/^\s*(\w+)\.(\w+)\s*=\s*([^;]+)\s*;?/);
         const nestedMemberCallMatch = trimmedLine.match(/^\s*(\w+)\.(\w+)\.push_back\s*\(\s*([^)]+)\s*\)\s*;?/);
@@ -513,6 +622,45 @@ export function parseAndSimulateCpp(code) {
               }
             }
           }
+        }
+      }
+      
+      // Arrow operator for pointer->member access (linked list traversal)
+      if (!parsed) {
+        const arrowAssignMatch = trimmedLine.match(/^\s*(\w+)->(\w+)\s*=\s*([^;]+)\s*;?/);
+        if (arrowAssignMatch) {
+          const [, ptrName, memberName, value] = arrowAssignMatch;
+          
+          if (currentFrame.variables.has(ptrName)) {
+            const ptr = currentFrame.variables.get(ptrName);
+            const targetAddress = ptr.value;
+            
+            if (targetAddress && heap.has(targetAddress)) {
+              const heapNode = heap.get(targetAddress);
+              if (heapNode.isStruct && heapNode.value) {
+                const member = heapNode.members?.find(m => m.name === memberName);
+                
+                // Check if we're assigning a pointer (like next = anotherPtr)
+                if (member && (member.isPointer || member.type.includes('*'))) {
+                  // Value is another pointer variable or nullptr
+                  if (value === 'nullptr' || value === 'NULL') {
+                    heapNode.value[memberName] = null;
+                  } else if (currentFrame.variables.has(value)) {
+                    const sourcePtr = currentFrame.variables.get(value);
+                    heapNode.value[memberName] = sourcePtr.value; // Copy the address
+                  }
+                } else {
+                  // Regular value assignment
+                  heapNode.value[memberName] = parseValue(value, member?.type || 'int');
+                }
+                
+                heap.set(targetAddress, heapNode);
+              }
+            }
+          }
+          
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+          parsed = true;
         }
       }
       
@@ -802,6 +950,8 @@ export function parseAndSimulateCpp(code) {
 function addStep(steps, lineNumber, line, callStack, heap, pointers, references, danglingPointers) {
   const currentFrame = callStack[callStack.length - 1];
   const pointerArrows = [];
+  const linkedListConnections = [];
+  const treeConnections = [];
   
   // Add pointer arrows
   for (const [ptrName, targetAddr] of pointers.entries()) {
@@ -811,7 +961,8 @@ function addStep(steps, lineNumber, line, callStack, heap, pointers, references,
             from: ptrName,
             to: targetAddr,
             isDangling: danglingPointers.has(ptrName),
-            type: varEntry.type.includes('*') ? 'pointer' : 'vector_data_ptr',
+            type: varEntry.isNodePointer ? 'node_pointer' : (varEntry.type.includes('*') ? 'pointer' : 'vector_data_ptr'),
+            dataStructureType: varEntry.dataStructureType,
         });
     }
   }
@@ -826,6 +977,50 @@ function addStep(steps, lineNumber, line, callStack, heap, pointers, references,
     });
   }
   
+  // Add linked list node connections (next/prev pointers)
+  for (const [addr, node] of heap.entries()) {
+    if (node.isLinkedListNode && node.value && !node.isDeleted) {
+      // Check for 'next' pointer
+      if (node.value.next && node.value.next !== null) {
+        linkedListConnections.push({
+          from: addr,
+          to: node.value.next,
+          type: 'next',
+          dataStructure: 'linked_list',
+        });
+      }
+      // Check for 'prev' pointer (doubly linked)
+      if (node.value.prev && node.value.prev !== null) {
+        linkedListConnections.push({
+          from: addr,
+          to: node.value.prev,
+          type: 'prev',
+          dataStructure: 'linked_list',
+        });
+      }
+    }
+    
+    // Add binary tree connections
+    if (node.isBinaryTreeNode && node.value && !node.isDeleted) {
+      if (node.value.left && node.value.left !== null) {
+        treeConnections.push({
+          from: addr,
+          to: node.value.left,
+          type: 'left',
+          dataStructure: 'binary_tree',
+        });
+      }
+      if (node.value.right && node.value.right !== null) {
+        treeConnections.push({
+          from: addr,
+          to: node.value.right,
+          type: 'right',
+          dataStructure: 'binary_tree',
+        });
+      }
+    }
+  }
+  
   steps.push({
     lineNumber: lineNumber,
     line: line,
@@ -833,6 +1028,8 @@ function addStep(steps, lineNumber, line, callStack, heap, pointers, references,
       stack: Array.from(currentFrame.variables.values()),
       heap: Array.from(heap.entries()).map(([addr, data]) => ({ ...data, address: addr })),
       pointers: pointerArrows,
+      linkedListConnections,
+      treeConnections,
       danglingPointers: Array.from(danglingPointers),
       callStack: callStack.map(frame => ({ name: frame.name, varCount: frame.variables.size })),
     },

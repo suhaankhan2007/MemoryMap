@@ -1,16 +1,29 @@
 
 import React, { useRef, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Layers, HardDrive } from "lucide-react";
+import { Layers, HardDrive, GitBranch, Binary } from "lucide-react";
 import StackFrame from "./StackFrame";
 import HeapBlock from "./HeapBlock";
+import DataStructureRenderer from "./DataStructureRenderer";
+import ArrowSystem from "./ArrowSystem";
 
 export default function MemoryVisualization({ memoryState, isActive, isDarkMode, memoryLeaks = [] }) {
-  const { stack = [], heap = [], pointers = [] } = memoryState;
+  const { 
+    stack = [], 
+    heap = [], 
+    pointers = [],
+    linkedListConnections = [],
+    treeConnections = []
+  } = memoryState;
   const stackRefs = useRef({});
   const heapRefs = useRef({});
   const containerRef = useRef(null);
   const [arrowPaths, setArrowPaths] = useState([]);
+
+  // Check for data structures in heap
+  const hasLinkedLists = heap.some(h => h.isLinkedListNode && !h.isDeleted);
+  const hasTrees = heap.some(h => h.isBinaryTreeNode && !h.isDeleted);
+  const hasDataStructures = hasLinkedLists || hasTrees;
 
   // Calculate arrow paths when memory state changes
   useEffect(() => {
@@ -38,30 +51,38 @@ export default function MemoryVisualization({ memoryState, isActive, isDarkMode,
           const endX = toRect.left - containerRect.left;
           const endY = toRect.top - containerRect.top + toRect.height / 2;
 
-          // Create smooth curved path with control point above
-          const midX = (startX + endX) / 2;
+          // Create smooth bezier curve with S-shape
           const distance = Math.abs(endX - startX);
-          const curveOffset = Math.min(distance * 0.3, 60);
-          const controlY = Math.min(startY, endY) - curveOffset;
+          const curveOffset = Math.min(distance * 0.3, 80);
+          const control1X = startX + distance * 0.3;
+          const control1Y = startY - curveOffset * 0.5;
+          const control2X = endX - distance * 0.3;
+          const control2Y = endY - curveOffset * 0.5;
           
-          const path = `M ${startX} ${startY} Q ${midX} ${controlY} ${endX} ${endY}`;
+          const path = `M ${startX} ${startY} C ${control1X} ${control1Y} ${control2X} ${control2Y} ${endX} ${endY}`;
 
           // Determine if pointing to heap or stack
           const isHeapTarget = heap.some(h => h.address === pointer.to);
+
+          // Label position (middle of curve)
+          const labelX = (startX + endX) / 2;
+          const labelY = Math.min(startY, endY) - curveOffset;
 
           paths.push({
             path,
             from: pointer.from,
             to: pointer.to,
+            type: pointer.type || 'pointer',
             index,
             startX,
             startY,
             endX,
             endY,
+            labelX,
+            labelY,
             isHeapTarget,
             isDangling: pointer.isDangling,
-            midX,
-            controlY,
+            dataStructureType: pointer.dataStructureType,
           });
         }
       });
@@ -103,172 +124,54 @@ export default function MemoryVisualization({ memoryState, isActive, isDarkMode,
   const borderClass = isDarkMode ? 'border-gray-600' : 'border-blue-200';
   const heapBorderClass = isDarkMode ? 'border-gray-600' : 'border-orange-200';
 
+  // Filter out data structure nodes for special rendering
+  const regularHeapBlocks = heap.filter(h => !h.isLinkedListNode && !h.isBinaryTreeNode);
+  const dsHeapBlocks = heap.filter(h => h.isLinkedListNode || h.isBinaryTreeNode);
+
   return (
     <div ref={containerRef} className="relative min-h-[600px]">
-      {/* Pointer Arrows - SVG layer BEHIND content */}
+      {/* Professional Arrow System */}
       {arrowPaths.length > 0 && (
-        <svg 
-          className="absolute inset-0 pointer-events-none" 
-          style={{ zIndex: 1, width: '100%', height: '100%' }}
-        >
-          <defs>
-            <marker
-              id="arrowhead-heap"
-              markerWidth="14"
-              markerHeight="14"
-              refX="13"
-              refY="7"
-              orient="auto"
-            >
-              <path d="M 0 0 L 14 7 L 0 14 z" fill="#10b981" />
-            </marker>
-            <marker
-              id="arrowhead-heap-dark"
-              markerWidth="14"
-              markerHeight="14"
-              refX="13"
-              refY="7"
-              orient="auto"
-            >
-              <path d="M 0 0 L 14 7 L 0 14 z" fill="#34d399" />
-            </marker>
-            <marker
-              id="arrowhead-stack"
-              markerWidth="14"
-              markerHeight="14"
-              refX="13"
-              refY="7"
-              orient="auto"
-            >
-              <path d="M 0 0 L 14 7 L 0 14 z" fill="#3b82f6" />
-            </marker>
-            <marker
-              id="arrowhead-stack-dark"
-              markerWidth="14"
-              markerHeight="14"
-              refX="13"
-              refY="7"
-              orient="auto"
-            >
-              <path d="M 0 0 L 14 7 L 0 14 z" fill="#60a5fa" />
-            </marker>
-            <marker
-              id="arrowhead-dangling"
-              markerWidth="14"
-              markerHeight="14"
-              refX="13"
-              refY="7"
-              orient="auto"
-            >
-              <path d="M 0 0 L 14 7 L 0 14 z" fill="#ef4444" />
-            </marker>
-          </defs>
-          
-          <AnimatePresence>
-            {arrowPaths.map((arrow) => {
-              const isDangling = arrow.isDangling;
-              const strokeColor = isDangling
-                ? "#ef4444"
-                : arrow.isHeapTarget 
-                  ? (isDarkMode ? "#34d399" : "#10b981")
-                  : (isDarkMode ? "#60a5fa" : "#3b82f6");
-              const markerEnd = isDangling
-                ? "url(#arrowhead-dangling)"
-                : arrow.isHeapTarget
-                  ? (isDarkMode ? "url(#arrowhead-heap-dark)" : "url(#arrowhead-heap)")
-                  : (isDarkMode ? "url(#arrowhead-stack-dark)" : "url(#arrowhead-stack)");
-              
-              return (
-                <motion.g
-                  key={`${arrow.from}-${arrow.to}-${arrow.index}`}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.5, delay: arrow.index * 0.2 }}
-                >
-                  {/* Glowing background */}
-                  <motion.path
-                    d={arrow.path}
-                    stroke={strokeColor}
-                    strokeWidth="8"
-                    fill="none"
-                    opacity={isDangling ? "0.4" : "0.2"}
-                    initial={{ pathLength: 0 }}
-                    animate={{ pathLength: 1 }}
-                    transition={{ duration: 0.8, ease: "easeInOut", delay: arrow.index * 0.2 }}
-                  />
-                  
-                  {/* Main arrow line */}
-                  <motion.path
-                    d={arrow.path}
-                    stroke={strokeColor}
-                    strokeWidth="4"
-                    fill="none"
-                    markerEnd={markerEnd}
-                    strokeDasharray={isDangling ? "4,4" : "8,4"}
-                    initial={{ pathLength: 0 }}
-                    animate={{ 
-                      pathLength: 1,
-                    }}
-                    transition={{ 
-                      pathLength: { duration: 0.8, ease: "easeInOut", delay: arrow.index * 0.2 },
-                    }}
-                  />
-                  
-                  {/* Animated dash movement */}
-                  {!isDangling && (
-                    <motion.path
-                      d={arrow.path}
-                      stroke={strokeColor}
-                      strokeWidth="4"
-                      fill="none"
-                      strokeDasharray="8,4"
-                      animate={{ 
-                        strokeDashoffset: [0, -12],
-                      }}
-                      transition={{ 
-                        duration: 1,
-                        repeat: Infinity,
-                        ease: "linear",
-                        delay: arrow.index * 0.2 + 0.8
-                      }}
-                    />
-                  )}
+        <ArrowSystem 
+          arrows={arrowPaths} 
+          isDarkMode={isDarkMode}
+          containerRef={containerRef}
+        />
+      )}
 
-                  {/* Pointer label */}
-                  <motion.g
-                    initial={{ opacity: 0, scale: 0 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: arrow.index * 0.2 + 0.5 }}
-                  >
-                    <rect
-                      x={(arrow.startX + arrow.endX) / 2 - 30}
-                      y={arrow.controlY - 15}
-                      width="60"
-                      height="24"
-                      rx="12"
-                      fill={strokeColor}
-                      opacity="0.95"
-                    />
-                    <text
-                      x={(arrow.startX + arrow.endX) / 2}
-                      y={arrow.controlY}
-                      fill="white"
-                      fontSize="13"
-                      fontWeight="bold"
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      className="font-mono"
-                    >
-                      {arrow.from}
-                      {isDangling && " ⚠️"}
-                    </text>
-                  </motion.g>
-                </motion.g>
-              );
-            })}
-          </AnimatePresence>
-        </svg>
+      {/* Data Structure Visualization Section */}
+      {hasDataStructures && (
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`mb-8 p-6 rounded-2xl border-2 ${
+            isDarkMode 
+              ? 'bg-gradient-to-br from-gray-800/80 to-gray-900/80 border-gray-700' 
+              : 'bg-gradient-to-br from-slate-50 to-white border-slate-200'
+          } shadow-xl`}
+        >
+          <div className="flex items-center gap-3 mb-6">
+            <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-purple-900/50' : 'bg-purple-100'}`}>
+              <GitBranch className={`w-5 h-5 ${isDarkMode ? 'text-purple-400' : 'text-purple-600'}`} />
+            </div>
+            <div>
+              <h3 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+                Data Structures Detected
+              </h3>
+              <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                {hasLinkedLists && 'Linked List'}{hasLinkedLists && hasTrees && ' • '}{hasTrees && 'Binary Tree'}
+              </p>
+            </div>
+          </div>
+          
+          <DataStructureRenderer
+            heap={dsHeapBlocks}
+            linkedListConnections={linkedListConnections}
+            treeConnections={treeConnections}
+            isDarkMode={isDarkMode}
+            containerRef={containerRef}
+          />
+        </motion.div>
       )}
 
       <div className="relative z-10 grid grid-cols-2 gap-10">
@@ -326,7 +229,7 @@ export default function MemoryVisualization({ memoryState, isActive, isDarkMode,
           
           <div className="space-y-3">
             <AnimatePresence mode="popLayout">
-              {heap.length === 0 ? (
+              {regularHeapBlocks.length === 0 && !hasDataStructures ? (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -334,8 +237,17 @@ export default function MemoryVisualization({ memoryState, isActive, isDarkMode,
                 >
                   No heap allocations yet
                 </motion.div>
+              ) : regularHeapBlocks.length === 0 && hasDataStructures ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} py-4 text-center ${emptyBoxClass} rounded-lg border-2 border-dashed flex items-center justify-center gap-2`}
+                >
+                  <Binary className="w-4 h-4" />
+                  <span>Data structures shown above</span>
+                </motion.div>
               ) : (
-                heap.map((block, index) => (
+                regularHeapBlocks.map((block, index) => (
                   <div key={block.address} ref={(el) => {
                     if (el) heapRefs.current[block.address] = el;
                   }}>
