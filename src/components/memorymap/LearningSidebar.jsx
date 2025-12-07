@@ -70,7 +70,7 @@ export default function LearningSidebar({
 
   if (isEmbedded) {
     return (
-      <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+      <div className="space-y-4 pr-2">
         {/* Detected Topics Badge */}
         {relevantConcepts.length > 0 && (
           <div className={`flex items-center gap-2 p-3 rounded-xl ${
@@ -609,3 +609,4 @@ export default function LearningSidebar({
     </div>
   );
 }
+

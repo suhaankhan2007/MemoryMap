@@ -602,3 +602,5 @@ export function getDifficultyColor(difficulty) {
     default: return 'text-gray-600 bg-gray-100';
   }
 }
+
+

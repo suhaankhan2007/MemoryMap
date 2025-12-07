@@ -371,6 +371,17 @@ ptr = nullptr;`]);
   const [showExportModal, setShowExportModal] = useState(false);
   const [learningSidebarOpen, setLearningSidebarOpen] = useState(false); // Collapsed by default for better view
   const [featuredTab, setFeaturedTab] = useState("memai"); // 'memai', 'leetcode', 'learn'
+  const [showFloatingBar, setShowFloatingBar] = useState(false);
+
+  // Track scroll position for floating bar
+  useEffect(() => {
+    const handleScroll = () => {
+      // Show floating bar when scrolled past 200px
+      setShowFloatingBar(window.scrollY > 200);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   useEffect(() => {
     const savedMode = localStorage.getItem('memorymap-dark-mode');
@@ -454,6 +465,10 @@ ptr = nullptr;`]);
       setExecutionSteps(steps);
       setCurrentStep(0);
       
+      // Auto-open Mem AI panel to show explanations
+      setFeaturedTab('memai');
+      setLearningSidebarOpen(true);
+      
       // Detect memory leaks and dangling pointers
       detectMemoryIssues(steps);
       
@@ -483,75 +498,109 @@ ptr = nullptr;`]);
     }
   };
 
+  // Generate smart fallback explanations when API isn't available
+  const generateFallbackExplanation = (step, lang) => {
+    const line = step.line.trim();
+    const langName = lang === 'cpp' ? 'C++' : 'C';
+    
+    // Pattern matching for common operations
+    if (line.includes('new ') && line.includes('int')) {
+      return `🔵 **Heap Allocation**: This line allocates memory on the heap for an integer using \`new\`. The returned address is stored in a pointer variable.\n\n💡 **Deeper Insight:** Heap memory persists until explicitly freed with \`delete\`. Unlike stack memory, you control its lifetime.\n\n⚠️ **Watch Out:** Always pair \`new\` with \`delete\` to prevent memory leaks!`;
+    }
+    if (line.includes('new ') && (line.includes('Node') || line.includes('ListNode') || line.includes('TreeNode'))) {
+      return `🔵 **Node Creation**: Allocating a new node structure on the heap. This is the building block for data structures like linked lists and trees.\n\n💡 **Deeper Insight:** Each node typically contains data and pointer(s) to other nodes, creating connected structures in memory.`;
+    }
+    if (line.includes('->next')) {
+      return `🔗 **Linked List Operation**: Using the arrow operator (\`->\`) to access or modify the \`next\` pointer of a node. This connects nodes together to form a chain.\n\n💡 **Deeper Insight:** Following \`next\` pointers is O(n) traversal - each hop requires dereferencing a memory address.`;
+    }
+    if (line.includes('->left') || line.includes('->right')) {
+      return `🌳 **Binary Tree Operation**: Accessing a child node pointer in a binary tree structure. Left typically holds smaller values, right holds larger (in BST).\n\n💡 **Deeper Insight:** Tree height affects performance - balanced trees give O(log n) operations.`;
+    }
+    if (line.includes('->val') || line.includes('->data')) {
+      return `📦 **Accessing Node Data**: Reading or writing the value stored in this node using the arrow operator.\n\n💡 **Deeper Insight:** The arrow operator (\`->\`) combines dereferencing (\`*\`) and member access (\`.\`) into one operation.`;
+    }
+    if (line.includes('delete ')) {
+      return `🗑️ **Memory Deallocation**: This line frees heap memory using \`delete\`. The memory is returned to the system for reuse.\n\n⚠️ **Watch Out:** After deletion, the pointer becomes "dangling" - set it to \`nullptr\` immediately to avoid use-after-free bugs!`;
+    }
+    if (line.includes('nullptr') || line.includes('NULL')) {
+      return `🚫 **Null Pointer Assignment**: Setting a pointer to null indicates it points to nothing. This is crucial after deletion or for marking list/tree ends.\n\n💡 **Deeper Insight:** Always check for null before dereferencing to prevent crashes!`;
+    }
+    if (line.includes('*') && line.includes('=') && !line.includes('new')) {
+      return `📝 **Dereferencing & Assignment**: The \`*\` operator accesses the value at the memory address stored in the pointer. This modifies the actual data in memory.\n\n💡 **Deeper Insight:** This is how we "reach through" a pointer to change what it points to.`;
+    }
+    if (line.includes('int ') || line.includes('char ') || line.includes('float ') || line.includes('double ')) {
+      if (line.includes('*')) {
+        return `📍 **Pointer Declaration**: Creating a pointer variable that will store a memory address. The \`*\` indicates this is a pointer type.\n\n💡 **Deeper Insight:** Pointers are typically 8 bytes on 64-bit systems, regardless of what type they point to.`;
+      }
+      return `📊 **Stack Variable**: Declaring a variable on the stack. Stack memory is automatically managed - it's created when the function is called and destroyed when it returns.\n\n💡 **Deeper Insight:** Stack allocation is extremely fast - just moving the stack pointer!`;
+    }
+    if (line.includes('struct ') || line.includes('class ')) {
+      return `🏗️ **Structure Definition**: Defining a custom data type that groups related variables together. Each instance will have its own copy of these members.\n\n💡 **Deeper Insight:** Structs lay out members contiguously in memory, which is cache-friendly.`;
+    }
+    if (line.includes('while') || line.includes('for')) {
+      return `🔄 **Loop Structure**: Beginning a loop that will repeat code until a condition is false. Common for traversing data structures.\n\n💡 **Deeper Insight:** When traversing linked structures, always check for null to avoid infinite loops!`;
+    }
+    if (line.includes('if') || line.includes('else')) {
+      return `🔀 **Conditional Branch**: The program will take different paths based on this condition. Essential for handling edge cases like empty lists.\n\n💡 **Deeper Insight:** Always handle null pointer cases before dereferencing!`;
+    }
+    
+    // Default explanation
+    return `📝 **${langName} Code**: ${line}\n\nThis line is being executed. Watch the memory visualization to see how the stack and heap change!\n\n💡 **Tip:** Step through slowly to understand each memory operation.`;
+  };
+
   const generateExplanations = async (steps) => {
     setIsGeneratingExplanations(true);
     const newExplanations = {};
 
     try {
+      // Try API-based generation first
+      let apiWorking = true;
+      
       for (let i = 0; i < steps.length; i++) {
         const step = steps[i];
-        const fullCode = code;
+        
+        // If API failed before, use fallback for remaining
+        if (!apiWorking) {
+          newExplanations[i] = generateFallbackExplanation(step, language);
+          continue;
+        }
         
         const langName = language === 'cpp' ? 'C++' : 'C';
-        const prompt = `You are an expert ${langName} instructor teaching memory management and advanced concepts.
-Analyze this line of ${langName} code and provide a comprehensive but accessible explanation.
+        const prompt = `You are Mem AI, a friendly ${langName} memory tutor. Explain this line simply:
 
-**Current Line:** "${step.line}"
+Line: "${step.line}"
+Memory: Stack has ${step.memoryState.stack.length} vars, Heap has ${step.memoryState.heap.length} blocks.
 
-**Full Code Context:**
-\`\`\`${language === 'cpp' ? 'cpp' : 'c'}
-${fullCode}
-\`\`\`
+Give a 2-3 sentence explanation of what this line does with memory. Be concise but insightful. If it's a pointer/struct operation, explain the memory connection. End with one emoji that represents the operation.`;
 
-**Current Memory State:**
-- Stack variables: ${JSON.stringify(step.memoryState.stack)}
-- Heap allocations: ${JSON.stringify(step.memoryState.heap)}
-- Pointers: ${JSON.stringify(step.memoryState.pointers)}
-
-**Provide insights on (where applicable):**
-
-1. **Memory Operation**: What's happening in memory (stack/heap allocation, pointer manipulation, etc.)
-
-2. **Data Structure Insights**: If the code involves or builds toward data structures (linked lists, trees, graphs, dynamic arrays), explain:
-   - How nodes/elements are connected
-   - Memory layout implications
-   - Time/space complexity hints
-
-3. **Compiler Optimizations**: Mention any likely compiler optimizations:
-   - Return Value Optimization (RVO/NRVO)
-   - Copy elision
-   - Inlining possibilities
-   - Register allocation hints
-   - Dead code elimination
-
-4. **${language === 'cpp' ? 'C++' : 'C'} Pitfalls & Best Practices**: Warn about potential issues:
-   - Undefined behavior risks (uninitialized variables, buffer overflows, integer overflow)
-   - Race conditions (if threading context is implied)
-   - Object slicing
-   - Exception safety concerns
-   - Rule of Three/Five/Zero violations
-   - Dangling references
-   - Use-after-free risks
-
-5. **Modern Alternatives**: Briefly suggest safer alternatives when applicable (${language === 'cpp' ? 'smart pointers, containers, RAII patterns' : 'better memory management practices, using wrapper functions'}).
-
-**Format your response as:**
-- Start with a simple 1-2 sentence explanation of what the line does
-- Add a "💡 Deeper Insight:" section for advanced concepts (keep it concise)
-- Add a "⚠️ Watch Out:" section only if there's a genuine pitfall risk
-
-Keep the tone friendly and educational. Total response should be 3-6 sentences.`;
-
-        const result = await base44.integrations.Core.InvokeLLM({
-          prompt: prompt,
-        });
-
-        newExplanations[i] = result;
+        try {
+          const result = await base44.integrations.Core.InvokeLLM({
+            prompt: prompt,
+          });
+          
+          if (result && result.length > 10) {
+            newExplanations[i] = result;
+          } else {
+            newExplanations[i] = generateFallbackExplanation(step, language);
+          }
+        } catch (apiError) {
+          console.warn("API call failed for step", i, "- using fallback");
+          apiWorking = false;
+          newExplanations[i] = generateFallbackExplanation(step, language);
+        }
+        
+        // Update explanations progressively so user sees them appear
+        setExplanations({...newExplanations});
       }
 
       setExplanations(newExplanations);
     } catch (error) {
       console.error("Error generating explanations:", error);
+      // Generate all fallbacks if total failure
+      for (let i = 0; i < steps.length; i++) {
+        newExplanations[i] = generateFallbackExplanation(steps[i], language);
+      }
+      setExplanations(newExplanations);
     } finally {
       setIsGeneratingExplanations(false);
     }
@@ -813,286 +862,164 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
         isDarkMode={isDarkMode}
       />
       
-      {/* Header */}
+      {/* Header - Compact Single Line */}
       <header className={`${headerClass} shadow-xl`}>
-        <div className="max-w-[1800px] mx-auto px-6 py-6">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-white rounded-xl flex items-center justify-center shadow-lg">
-                <MemoryMapLogo className="w-10 h-10" />
+        <div className="max-w-[1920px] mx-auto px-4 py-3">
+          <div className="flex items-center gap-3">
+            {/* Logo & Title */}
+            <Link to="/" className="flex items-center gap-2 flex-shrink-0">
+              <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow">
+                <MemoryMapLogo className="w-7 h-7" />
               </div>
-              <div>
-                <div className="flex items-center gap-3">
-                  <h1 className="text-3xl font-bold text-white">Memory Map</h1>
-                  {currentProblem && (
-                    <span className="px-3 py-1 bg-yellow-400 text-gray-900 text-sm font-bold rounded-full flex items-center gap-1.5">
-                      <Trophy className="w-4 h-4" />
-                      #{currentProblem.id} {currentProblem.title}
-                    </span>
-                  )}
-                </div>
-                <p className="text-blue-100">
-                  {currentProblem 
-                    ? `${currentProblem.pattern} • ${currentProblem.timeComplexity} Time • ${currentProblem.spaceComplexity} Space`
-                    : 'Visualize C/C++ Memory: Stack, Heap, Pointers, Arrays, Structs & More'
-                  }
-                </p>
-              </div>
-            </div>
+              <span className="text-xl font-bold text-white hidden md:block">MemoryMap</span>
+            </Link>
+            
+            {/* Current Problem Badge */}
+            {currentProblem && (
+              <span className="px-2 py-1 bg-yellow-400 text-gray-900 text-xs font-bold rounded-full flex items-center gap-1 flex-shrink-0">
+                <Trophy className="w-3 h-3" />
+                #{currentProblem.id}
+              </span>
+            )}
+
+            {/* Divider */}
+            <div className="w-px h-6 bg-white/30 hidden md:block" />
             
             {/* Language Tabs */}
-            <Tabs value={language} onValueChange={handleLanguageChange} className="w-auto">
-              <TabsList className="bg-white/20 border border-white/30">
-                <TabsTrigger value="cpp" className="data-[state=active]:bg-white data-[state=active]:text-purple-700 text-white font-semibold px-6">
-                  C++
-                </TabsTrigger>
-                <TabsTrigger value="c" className="data-[state=active]:bg-white data-[state=active]:text-blue-700 text-white font-semibold px-6">
-                  C
-                </TabsTrigger>
+            <Tabs value={language} onValueChange={handleLanguageChange} className="flex-shrink-0">
+              <TabsList className="bg-white/20 h-8">
+                <TabsTrigger value="cpp" className="text-xs px-3 h-6 data-[state=active]:bg-white data-[state=active]:text-purple-700 text-white">C++</TabsTrigger>
+                <TabsTrigger value="c" className="text-xs px-3 h-6 data-[state=active]:bg-white data-[state=active]:text-blue-700 text-white">C</TabsTrigger>
               </TabsList>
             </Tabs>
-            
-            {/* Control Buttons */}
-            <div className="flex items-center gap-3 flex-wrap">
-              <Link to="/">
-                <Button
-                  size="lg"
-                  variant="outline"
-                  className="bg-white/90 hover:bg-white border-2 border-white/50"
-                  title="Back to Home"
-                >
-                  <Home className="w-5 h-5" />
-                </Button>
-              </Link>
 
-              {/* Learning Hub Tab Buttons - Highlighted */}
-              <div className="flex items-center bg-white/20 rounded-xl p-1 backdrop-blur-sm border border-white/30">
-                <Button
-                  onClick={() => {
-                    setFeaturedTab('memai');
-                    setLearningSidebarOpen(true);
-                  }}
-                  size="sm"
-                  variant="ghost"
-                  className={`gap-1.5 rounded-lg transition-all ${
-                    featuredTab === 'memai' && learningSidebarOpen
-                      ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg' 
-                      : 'text-white hover:bg-white/20'
-                  }`}
-                  title="Mem AI - Your AI Tutor"
-                >
-                  <Zap className="w-4 h-4" />
-                  <span className="hidden sm:inline font-semibold">🧠 Mem AI</span>
-                  <span className="sm:hidden">🧠</span>
-                </Button>
+            {/* Examples Dropdown */}
+            <Select onValueChange={handleLoadExample}>
+              <SelectTrigger className="w-36 h-8 bg-white/90 border-none text-xs">
+                <SelectValue placeholder="Examples" />
+              </SelectTrigger>
+              <SelectContent className="max-h-80">
+                {Object.entries(language === 'cpp' ? CPP_EXAMPLES : C_EXAMPLES).map(([key, example]) => (
+                  <SelectItem key={key} value={key} className="text-sm">
+                    {example.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-                <Button
-                  onClick={() => {
-                    setFeaturedTab('leetcode');
-                    setLearningSidebarOpen(true);
-                  }}
-                  size="sm"
-                  variant="ghost"
-                  className={`gap-1.5 rounded-lg transition-all ${
-                    featuredTab === 'leetcode' && learningSidebarOpen
-                      ? 'bg-gradient-to-r from-yellow-400 to-orange-500 text-gray-900 shadow-lg' 
-                      : 'text-white hover:bg-white/20'
-                  }`}
-                  title="LeetCode Mode"
-                >
-                  <Trophy className="w-4 h-4" />
-                  <span className="hidden sm:inline font-semibold">🏆 LeetCode</span>
-                  <span className="sm:hidden">🏆</span>
-                </Button>
+            {/* Spacer */}
+            <div className="flex-1" />
 
-                <Button
-                  onClick={() => {
-                    setFeaturedTab('learn');
-                    setLearningSidebarOpen(true);
-                  }}
-                  size="sm"
-                  variant="ghost"
-                  className={`gap-1.5 rounded-lg transition-all ${
-                    featuredTab === 'learn' && learningSidebarOpen
-                      ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-lg' 
-                      : 'text-white hover:bg-white/20'
-                  }`}
-                  title="Learning Resources"
-                >
-                  <GraduationCap className="w-4 h-4" />
-                  <span className="hidden sm:inline font-semibold">📚 Learn</span>
-                  <span className="sm:hidden">📚</span>
-                </Button>
-              </div>
+            {/* Mem AI - Standalone Premium Feature */}
+            <Button
+              onClick={() => { setFeaturedTab('memai'); setLearningSidebarOpen(true); }}
+              size="sm"
+              className={`h-8 px-3 gap-1.5 font-semibold text-xs shadow-lg transition-all ${
+                featuredTab === 'memai' && learningSidebarOpen 
+                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white ring-2 ring-purple-300' 
+                  : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600'
+              }`}
+            >
+              🧠 Mem AI
+              {isGeneratingExplanations && <span className="ml-1 animate-pulse">•••</span>}
+            </Button>
 
+            {/* Other Tools - Compact */}
+            <div className="flex items-center bg-white/20 rounded-lg p-0.5 backdrop-blur-sm">
               <Button
-                onClick={() => setShowExportModal(true)}
-                size="lg"
-                variant="outline"
-                className="bg-white/90 hover:bg-white border-2 border-white/50 gap-2"
-                disabled={executionSteps.length === 0}
-                title="Export & Share"
+                onClick={() => { setFeaturedTab('leetcode'); setLearningSidebarOpen(true); }}
+                size="sm"
+                variant="ghost"
+                className={`h-7 px-2 text-xs rounded ${featuredTab === 'leetcode' && learningSidebarOpen ? 'bg-yellow-400 text-gray-900' : 'text-white hover:bg-white/20'}`}
               >
-                <Share2 className="w-5 h-5" />
-                <span className="hidden sm:inline">Export</span>
+                🏆 LC
               </Button>
-
               <Button
-                onClick={() => setShowHelp(true)}
-                size="lg"
-                variant="outline"
-                className="bg-white/90 hover:bg-white border-2 border-white/50 gap-2"
+                onClick={() => { setFeaturedTab('learn'); setLearningSidebarOpen(true); }}
+                size="sm"
+                variant="ghost"
+                className={`h-7 px-2 text-xs rounded ${featuredTab === 'learn' && learningSidebarOpen ? 'bg-blue-500 text-white' : 'text-white hover:bg-white/20'}`}
               >
-                <BookOpen className="w-5 h-5" />
-                <span className="hidden sm:inline">Help</span>
+                📚
               </Button>
+            </div>
 
-              <Button
-                onClick={() => setIsDarkMode(!isDarkMode)}
-                size="lg"
-                variant="outline"
-                className="bg-white/90 hover:bg-white border-2 border-white/50"
-              >
-                {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-              </Button>
+            {/* Divider */}
+            <div className="w-px h-6 bg-white/30" />
 
-              <Button
-                onClick={handleUndo}
-                size="lg"
-                variant="outline"
-                className="bg-white/90 hover:bg-white border-2 border-white/50"
-                disabled={historyIndex <= 0}
-                title="Undo (Ctrl+Z)"
-              >
-                <Undo className="w-5 h-5" />
-              </Button>
-
-              <Button
-                onClick={handleRedo}
-                size="lg"
-                variant="outline"
-                className="bg-white/90 hover:bg-white border-2 border-white/50"
-                disabled={historyIndex >= codeHistory.length - 1}
-                title="Redo (Ctrl+Y)"
-              >
-                <Redo className="w-5 h-5" />
-              </Button>
-
-              <Select onValueChange={handleLoadExample}>
-                <SelectTrigger className="w-48 bg-white/90 border-none">
-                  <BookOpen className="w-4 h-4 mr-2" />
-                  <SelectValue placeholder="Load Example" />
-                </SelectTrigger>
-                <SelectContent className="max-h-96">
-                  {Object.entries(language === 'cpp' ? CPP_EXAMPLES : C_EXAMPLES).map(([key, example]) => (
-                    <SelectItem key={key} value={key}>
-                      <div className="flex flex-col">
-                        <span className="font-semibold">{example.name}</span>
-                        <span className="text-xs text-gray-500">{example.description}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Button
-                onClick={handleRun}
-                size="lg"
-                className="gap-2 bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-semibold shadow-lg"
-                disabled={isRunning || !code.trim()}
-              >
-                <Zap className="w-5 h-5" />
-                Parse Code
+            {/* Execution Controls */}
+            <div className="flex items-center gap-1">
+              <Button onClick={handleRun} size="sm" className="h-8 px-3 bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-semibold text-xs" disabled={isRunning || !code.trim()}>
+                <Zap className="w-4 h-4 mr-1" /> Parse
               </Button>
               
               {!isRunning ? (
-                <Button
-                  onClick={handleAutoRun}
-                  size="lg"
-                  className="gap-2 bg-green-500 hover:bg-green-600 text-white font-semibold shadow-lg"
-                  disabled={executionSteps.length === 0}
-                >
-                  <Play className="w-5 h-5" />
-                  Auto Run
+                <Button onClick={handleAutoRun} size="sm" className="h-8 px-3 bg-green-500 hover:bg-green-600 text-white text-xs" disabled={executionSteps.length === 0}>
+                  <Play className="w-4 h-4 mr-1" /> Run
                 </Button>
               ) : (
-                <Button
-                  onClick={handlePause}
-                  size="lg"
-                  className="gap-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold shadow-lg"
-                >
-                  <Pause className="w-5 h-5" />
-                  Pause
+                <Button onClick={handlePause} size="sm" className="h-8 px-3 bg-orange-500 hover:bg-orange-600 text-white text-xs">
+                  <Pause className="w-4 h-4 mr-1" /> Pause
                 </Button>
               )}
               
-              <Button
-                onClick={handleStep}
-                size="lg"
-                variant="outline"
-                className="gap-2 bg-white/90 hover:bg-white border-2 border-white/50 font-semibold"
-                disabled={isRunning || currentStep >= executionSteps.length - 1}
-              >
-                <SkipForward className="w-5 h-5" />
-                Step
+              <Button onClick={handleStep} size="sm" variant="outline" className="h-8 w-8 p-0 bg-white/90" disabled={isRunning || currentStep >= executionSteps.length - 1} title="Step">
+                <SkipForward className="w-4 h-4" />
               </Button>
-              <Button
-                onClick={handleReset}
-                size="lg"
-                variant="outline"
-                className="bg-white/90 hover:bg-white border-2 border-white/50"
-                disabled={executionSteps.length === 0}
-              >
-                <RotateCcw className="w-5 h-5" />
+              
+              <Button onClick={handleReset} size="sm" variant="outline" className="h-8 w-8 p-0 bg-white/90" disabled={executionSteps.length === 0} title="Reset">
+                <RotateCcw className="w-4 h-4" />
+              </Button>
+            </div>
+
+            {/* Divider */}
+            <div className="w-px h-6 bg-white/30" />
+
+            {/* Utility Buttons */}
+            <div className="flex items-center gap-1">
+              <Button onClick={handleUndo} size="sm" variant="outline" className="h-8 w-8 p-0 bg-white/90" disabled={historyIndex <= 0} title="Undo">
+                <Undo className="w-4 h-4" />
+              </Button>
+              <Button onClick={handleRedo} size="sm" variant="outline" className="h-8 w-8 p-0 bg-white/90" disabled={historyIndex >= codeHistory.length - 1} title="Redo">
+                <Redo className="w-4 h-4" />
+              </Button>
+              <Button onClick={() => setShowExportModal(true)} size="sm" variant="outline" className="h-8 w-8 p-0 bg-white/90" disabled={executionSteps.length === 0} title="Export">
+                <Share2 className="w-4 h-4" />
+              </Button>
+              <Button onClick={() => setShowHelp(true)} size="sm" variant="outline" className="h-8 w-8 p-0 bg-white/90" title="Help">
+                <BookOpen className="w-4 h-4" />
+              </Button>
+              <Button onClick={() => setIsDarkMode(!isDarkMode)} size="sm" variant="outline" className="h-8 w-8 p-0 bg-white/90" title="Toggle Dark Mode">
+                {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </Button>
             </div>
           </div>
-
-          {/* Speed Control */}
-          {executionSteps.length > 0 && (
-            <div className="mt-4 flex items-center gap-4 bg-white/10 backdrop-blur-sm rounded-lg p-3">
-              <span className="text-white text-sm font-medium">Speed:</span>
-              <Slider
-                value={[runSpeed]}
-                onValueChange={(value) => setRunSpeed(value[0])}
-                min={500}
-                max={3000}
-                step={500}
-                className="w-48"
-              />
-              <span className="text-white text-sm">{runSpeed}ms</span>
-            </div>
-          )}
         </div>
       </header>
 
-      {/* Memory Stats Bar */}
+      {/* Speed Control Bar - Only when running */}
       {executionSteps.length > 0 && (
-        <div className={isDarkMode ? 'bg-gray-800 border-b border-gray-700' : 'bg-white border-b shadow-sm'}>
-          <div className="max-w-[1800px] mx-auto px-6 py-3">
-            <div className="flex items-center justify-between text-sm">
-              <div className="flex gap-6">
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-blue-600" />
-                  <span className={`font-medium ${secondaryTextClass}`}>Stack: {stackSize} variables</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-orange-600" />
-                  <span className={`font-medium ${secondaryTextClass}`}>Heap: {heapSize} active</span>
-                </div>
-                {deletedHeap > 0 && (
-                  <div className="flex items-center gap-2">
-                    <span className={`font-medium ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>{deletedHeap} deleted</span>
-                  </div>
-                )}
+        <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b px-4 py-2`}>
+          <div className="max-w-[1920px] mx-auto flex items-center justify-between text-sm">
+            <div className="flex items-center gap-4">
+              <span className={`font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                Step {currentStep + 1}/{executionSteps.length}
+              </span>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Speed:</span>
+                <Slider value={[runSpeed]} onValueChange={(v) => setRunSpeed(v[0])} min={300} max={3000} step={300} className="w-24" />
+                <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{runSpeed}ms</span>
               </div>
-              <div className="font-semibold text-purple-600">
-                Step {currentStep + 1} / {executionSteps.length}
-              </div>
+            </div>
+            <div className="flex items-center gap-4 text-xs">
+              <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3 text-blue-500" /> Stack: {stackSize}</span>
+              <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3 text-orange-500" /> Heap: {heapSize}</span>
+              {deletedHeap > 0 && <span className="text-gray-400">{deletedHeap} freed</span>}
             </div>
           </div>
         </div>
       )}
+
 
       {/* Error Display */}
       {error && (
@@ -1156,11 +1083,11 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
       )}
 
       {/* ⭐ FEATURED LEARNING HUB - Collapsible Top Banner */}
-      <div className="max-w-[1800px] mx-auto px-6 pt-6">
+      <div className="max-w-[1920px] mx-auto px-3 sm:px-6 pt-4 sm:pt-6">
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`rounded-2xl overflow-hidden shadow-2xl border-2 ${
+          className={`rounded-xl sm:rounded-2xl overflow-hidden shadow-2xl border-2 ${
             isDarkMode 
               ? 'bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 border-purple-500' 
               : 'bg-gradient-to-br from-indigo-100 via-purple-100 to-pink-100 border-purple-400'
@@ -1169,30 +1096,30 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
           {/* Compact Header - Always Visible */}
           <button
             onClick={() => setLearningSidebarOpen(!learningSidebarOpen)}
-            className={`w-full p-3 ${
+            className={`w-full p-2 sm:p-3 ${
               isDarkMode 
                 ? 'bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500' 
                 : 'bg-gradient-to-r from-purple-500 via-pink-500 to-orange-400'
             } text-white hover:brightness-110 transition-all`}
           >
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 sm:gap-4">
                 <motion.div 
                   animate={{ rotate: learningSidebarOpen ? [0, 10, -10, 0] : 0 }}
                   transition={{ duration: 2, repeat: learningSidebarOpen ? Infinity : 0 }}
-                  className="text-xl"
+                  className="text-lg sm:text-xl"
                 >
                   ✨
                 </motion.div>
                 <div className="text-left">
-                  <h3 className="font-bold text-sm md:text-base">Learning Hub</h3>
-                  <p className="text-[10px] md:text-xs text-white/80 hidden sm:block">
-                    Resources • LeetCode • AI Explanations
+                  <h3 className="font-bold text-xs sm:text-sm md:text-base">Learning Hub</h3>
+                  <p className="text-[9px] sm:text-[10px] md:text-xs text-white/80 hidden xs:block">
+                    Mem AI • LeetCode • Resources
                   </p>
                 </div>
                 
-                {/* Quick Tab Buttons */}
-                <div className="hidden md:flex items-center gap-2 ml-4">
+                {/* Quick Tab Buttons - Hidden on mobile, shown on tablet+ */}
+                <div className="hidden lg:flex items-center gap-2 ml-4">
                   {[
                     { id: 'memai', icon: '🧠', label: 'Mem AI' },
                     { id: 'leetcode', icon: '🏆', label: 'LeetCode' },
@@ -1217,21 +1144,21 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
                 </div>
               </div>
               
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
                 {currentProblem && (
-                  <span className="hidden sm:flex items-center gap-1 px-2 py-1 bg-yellow-400 text-gray-900 rounded-full text-xs font-bold">
+                  <span className="hidden sm:flex items-center gap-1 px-2 py-1 bg-yellow-400 text-gray-900 rounded-full text-[10px] sm:text-xs font-bold">
                     <Trophy className="w-3 h-3" />
                     #{currentProblem.id}
                   </span>
                 )}
-                <span className="px-2 py-1 bg-white/20 rounded-full text-xs font-bold backdrop-blur-sm">
+                <span className="hidden sm:inline px-2 py-1 bg-white/20 rounded-full text-[10px] sm:text-xs font-bold backdrop-blur-sm">
                   🔥 Featured
                 </span>
                 <motion.div
                   animate={{ rotate: learningSidebarOpen ? 180 : 0 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <ChevronDown className="w-5 h-5" />
+                  <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" />
                 </motion.div>
               </div>
             </div>
@@ -1249,70 +1176,59 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
               >
                 {/* Tabs */}
                 <Tabs value={featuredTab} onValueChange={setFeaturedTab} className="w-full">
-                  <TabsList className={`w-full grid grid-cols-3 h-12 rounded-none ${
+                  <TabsList className={`w-full grid grid-cols-3 h-10 sm:h-12 rounded-none ${
                     isDarkMode ? 'bg-gray-800/50' : 'bg-white/50'
                   }`}>
                     <TabsTrigger 
                       value="memai" 
-                      className={`gap-2 text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
+                      className={`gap-1 sm:gap-2 text-xs sm:text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
                     >
-                      <Zap className="w-4 h-4" />
+                      <Zap className="w-3 h-3 sm:w-4 sm:h-4" />
                       <span className="hidden sm:inline">🧠 Mem AI</span>
-                      <span className="sm:hidden">🧠</span>
+                      <span className="sm:hidden text-[11px]">🧠 AI</span>
                     </TabsTrigger>
                     <TabsTrigger 
                       value="leetcode" 
-                      className={`gap-2 text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-500 data-[state=active]:to-orange-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
+                      className={`gap-1 sm:gap-2 text-xs sm:text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-500 data-[state=active]:to-orange-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
                     >
-                      <Trophy className="w-4 h-4" />
+                      <Trophy className="w-3 h-3 sm:w-4 sm:h-4" />
                       <span className="hidden sm:inline">🏆 LeetCode</span>
-                      <span className="sm:hidden">🏆</span>
+                      <span className="sm:hidden text-[11px]">🏆 LC</span>
                     </TabsTrigger>
                     <TabsTrigger 
                       value="learn" 
-                      className={`gap-2 text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-indigo-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
+                      className={`gap-1 sm:gap-2 text-xs sm:text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-indigo-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
                     >
-                      <GraduationCap className="w-4 h-4" />
+                      <GraduationCap className="w-3 h-3 sm:w-4 sm:h-4" />
                       <span className="hidden sm:inline">📚 Learn</span>
-                      <span className="sm:hidden">📚</span>
+                      <span className="sm:hidden text-[11px]">📚</span>
                     </TabsTrigger>
                   </TabsList>
 
-                  {/* Tab Contents - Horizontal Layout */}
-                  <div className={`p-4 ${isDarkMode ? 'bg-gray-800/30' : 'bg-white/30'} max-h-[300px] overflow-y-auto`}>
+                  {/* Tab Contents - Full Width Panel */}
+                  <div className={`p-3 sm:p-4 ${isDarkMode ? 'bg-gray-800/30' : 'bg-white/30'} max-h-[60vh] sm:max-h-[450px] overflow-y-auto`}>
                     <TabsContent value="memai" className="m-0">
-                      <ExplanationPanel
-                        explanation={currentExplanation}
-                        isLoading={isGeneratingExplanations}
-                        stepNumber={currentStep + 1}
-                        totalSteps={executionSteps.length}
-                        isDarkMode={isDarkMode}
-                        embedded={true}
-                      />
+                      <div className="max-w-3xl mx-auto">
+                        <ExplanationPanel
+                          explanation={currentExplanation}
+                          isLoading={isGeneratingExplanations}
+                          stepNumber={currentStep + 1}
+                          totalSteps={executionSteps.length}
+                          isDarkMode={isDarkMode}
+                          embedded={true}
+                        />
+                      </div>
                     </TabsContent>
 
                     <TabsContent value="leetcode" className="m-0">
-                      <div className="grid md:grid-cols-2 gap-4">
-                        <div>
-                          <LeetCodePanel
-                            onLoadProblem={handleLoadLeetCodeProblem}
-                            currentProblem={currentProblem}
-                            isDarkMode={isDarkMode}
-                            isOpen={true}
-                            onToggle={() => {}}
-                          />
-                        </div>
-                        {currentProblem && (
-                          <div>
-                            <ComplexityBadge
-                              timeComplexity={currentProblem.timeComplexity}
-                              spaceComplexity={currentProblem.spaceComplexity}
-                              pattern={currentProblem.pattern}
-                              isDarkMode={isDarkMode}
-                            />
-                          </div>
-                        )}
-                      </div>
+                      {/* LeetCode takes FULL WIDTH */}
+                      <LeetCodePanel
+                        onLoadProblem={handleLoadLeetCodeProblem}
+                        currentProblem={currentProblem}
+                        isDarkMode={isDarkMode}
+                        isOpen={true}
+                        onToggle={() => {}}
+                      />
                     </TabsContent>
 
                     <TabsContent value="learn" className="m-0">
@@ -1333,17 +1249,18 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
       </div>
 
       {/* Main Content - Code Editor & Visualization Side by Side */}
-      <div className="max-w-[1800px] mx-auto px-6 py-6">
-        <div className="grid lg:grid-cols-2 gap-6">
+      <div className="max-w-[1920px] mx-auto px-3 sm:px-6 py-4 sm:py-6">
+        <div className="grid lg:grid-cols-2 gap-4 sm:gap-6">
           {/* Left: Code Editor */}
-          <div className="space-y-4">
-            <Card className={`p-5 ${cardClass} shadow-2xl border-2`}>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className={`text-lg font-bold ${textClass} flex items-center gap-2`}>
+          <div className="space-y-3 sm:space-y-4">
+            <Card className={`p-3 sm:p-5 ${cardClass} shadow-2xl border-2`}>
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <h2 className={`text-base sm:text-lg font-bold ${textClass} flex items-center gap-2`}>
                   <div className={`w-2 h-2 ${language === 'cpp' ? 'bg-purple-500' : 'bg-blue-500'} rounded-full animate-pulse`}></div>
-                  {language === 'cpp' ? 'C++' : 'C'} Code Editor
+                  <span className="hidden sm:inline">{language === 'cpp' ? 'C++' : 'C'} Code Editor</span>
+                  <span className="sm:hidden">{language === 'cpp' ? 'C++' : 'C'}</span>
                 </h2>
-                <span className="text-xs font-semibold text-purple-600 bg-purple-100 px-3 py-1 rounded-full">
+                <span className="text-[10px] sm:text-xs font-semibold text-purple-600 bg-purple-100 px-2 sm:px-3 py-1 rounded-full">
                   Max 30 lines
                 </span>
               </div>
@@ -1359,9 +1276,9 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
               />
             </Card>
 
-            {/* Debugging Panels - Compact */}
+            {/* Debugging Panels - Responsive */}
             {executionSteps.length > 0 && (
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
                 <CallStackPanel
                   callStack={currentMemoryState.callStack}
                   isDarkMode={isDarkMode}
@@ -1384,20 +1301,20 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
 
           {/* Right: Memory Visualization */}
           <div>
-            <Card className={`p-8 ${cardClass} shadow-2xl border-2 min-h-[700px]`}>
-              <div className="flex items-center justify-between mb-6">
-                <h2 className={`text-xl font-bold ${textClass}`}>Memory Visualization</h2>
-                <div className="flex gap-4 text-sm font-medium">
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 bg-gradient-to-r from-blue-400 to-blue-500 rounded shadow-sm"></div>
+            <Card className={`p-4 sm:p-6 lg:p-8 ${cardClass} shadow-2xl border-2 min-h-[400px] sm:min-h-[500px] lg:min-h-[700px]`}>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 mb-4 sm:mb-6">
+                <h2 className={`text-base sm:text-lg lg:text-xl font-bold ${textClass}`}>Memory Visualization</h2>
+                <div className="flex gap-2 sm:gap-4 text-[10px] sm:text-sm font-medium flex-wrap">
+                  <div className="flex items-center gap-1 sm:gap-2">
+                    <div className="w-3 h-3 sm:w-4 sm:h-4 bg-gradient-to-r from-blue-400 to-blue-500 rounded shadow-sm"></div>
                     <span className={secondaryTextClass}>Stack</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 bg-gradient-to-r from-orange-400 to-red-500 rounded shadow-sm"></div>
+                  <div className="flex items-center gap-1 sm:gap-2">
+                    <div className="w-3 h-3 sm:w-4 sm:h-4 bg-gradient-to-r from-orange-400 to-red-500 rounded shadow-sm"></div>
                     <span className={secondaryTextClass}>Heap</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 bg-gradient-to-r from-green-400 to-green-500 rounded shadow-sm"></div>
+                  <div className="flex items-center gap-1 sm:gap-2">
+                    <div className="w-3 h-3 sm:w-4 sm:h-4 bg-gradient-to-r from-green-400 to-green-500 rounded shadow-sm"></div>
                     <span className={secondaryTextClass}>Pointer</span>
                   </div>
                 </div>
@@ -1482,6 +1399,137 @@ Keep the tone friendly and educational. Total response should be 3-6 sentences.`
           </motion.div>
         )}
       </div>
+
+      {/* 🎮 FLOATING CONTROL BAR - Appears when scrolled down */}
+      <AnimatePresence>
+        {showFloatingBar && executionSteps.length > 0 && (
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-50 ${
+              isDarkMode 
+                ? 'bg-gray-900/95 border-purple-500/50' 
+                : 'bg-white/95 border-purple-300'
+            } backdrop-blur-xl rounded-2xl shadow-2xl border-2 px-3 sm:px-4 py-2 sm:py-3`}
+          >
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* Step Counter */}
+              <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg ${
+                isDarkMode ? 'bg-purple-900/50' : 'bg-purple-100'
+              }`}>
+                <span className={`text-xs font-bold ${isDarkMode ? 'text-purple-300' : 'text-purple-700'}`}>
+                  Step {currentStep + 1}/{executionSteps.length}
+                </span>
+              </div>
+
+              {/* Mobile Step Counter */}
+              <span className={`sm:hidden text-xs font-bold px-2 py-1 rounded ${
+                isDarkMode ? 'bg-purple-900/50 text-purple-300' : 'bg-purple-100 text-purple-700'
+              }`}>
+                {currentStep + 1}/{executionSteps.length}
+              </span>
+
+              {/* Divider */}
+              <div className={`w-px h-6 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`} />
+
+              {/* Control Buttons */}
+              {!isRunning ? (
+                <Button 
+                  onClick={handleAutoRun} 
+                  size="sm" 
+                  className="h-8 px-3 bg-green-500 hover:bg-green-600 text-white text-xs gap-1"
+                  disabled={currentStep >= executionSteps.length - 1}
+                >
+                  <Play className="w-3 h-3 sm:w-4 sm:h-4" />
+                  <span className="hidden sm:inline">Run</span>
+                </Button>
+              ) : (
+                <Button 
+                  onClick={handlePause} 
+                  size="sm" 
+                  className="h-8 px-3 bg-orange-500 hover:bg-orange-600 text-white text-xs gap-1"
+                >
+                  <Pause className="w-3 h-3 sm:w-4 sm:h-4" />
+                  <span className="hidden sm:inline">Pause</span>
+                </Button>
+              )}
+
+              <Button 
+                onClick={handleStep} 
+                size="sm" 
+                className={`h-8 px-3 text-xs gap-1 ${
+                  isDarkMode 
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                    : 'bg-blue-500 hover:bg-blue-600 text-white'
+                }`}
+                disabled={isRunning || currentStep >= executionSteps.length - 1}
+              >
+                <SkipForward className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Step</span>
+              </Button>
+
+              <Button 
+                onClick={handleReset} 
+                size="sm" 
+                variant="outline"
+                className={`h-8 w-8 p-0 ${isDarkMode ? 'border-gray-600 hover:bg-gray-800' : ''}`}
+                title="Reset"
+              >
+                <RotateCcw className="w-3 h-3 sm:w-4 sm:h-4" />
+              </Button>
+
+              {/* Divider */}
+              <div className={`w-px h-6 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`} />
+
+              {/* Speed Control */}
+              <div className="hidden md:flex items-center gap-2">
+                <span className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Speed</span>
+                <Slider 
+                  value={[runSpeed]} 
+                  onValueChange={(v) => setRunSpeed(v[0])} 
+                  min={300} 
+                  max={3000} 
+                  step={300} 
+                  className="w-16" 
+                />
+              </div>
+
+              {/* Mem AI Button */}
+              <Button
+                onClick={() => {
+                  setFeaturedTab('memai');
+                  setLearningSidebarOpen(true);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                size="sm"
+                className={`h-8 px-2 sm:px-3 text-xs gap-1 ${
+                  isDarkMode 
+                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700' 
+                    : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600'
+                } text-white`}
+              >
+                🧠
+                <span className="hidden sm:inline">Mem AI</span>
+              </Button>
+
+              {/* Scroll to Top */}
+              <Button
+                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                size="sm"
+                variant="ghost"
+                className={`h-8 w-8 p-0 ${isDarkMode ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
+                title="Scroll to top"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                </svg>
+              </Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

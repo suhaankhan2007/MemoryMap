@@ -16,7 +16,7 @@ export default function ExplanationPanel({ explanation, isLoading, stepNumber, t
   // Embedded version for Featured Tools panel
   if (embedded) {
     return (
-      <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+      <div className="space-y-4 pr-2">
         {/* Mem AI Header */}
         <div className={`flex items-center justify-between p-3 rounded-xl ${
           isDarkMode ? 'bg-gradient-to-r from-purple-900/50 to-pink-900/50 border border-purple-700' : 'bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200'
