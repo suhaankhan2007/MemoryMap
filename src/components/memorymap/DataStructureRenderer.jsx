@@ -8,7 +8,12 @@ import { ArrowRight, GitBranch } from "lucide-react";
 
 // Linked List Node Component
 export function LinkedListNode({ node, index, isDarkMode, isHead, isTail, nodeRefs }) {
-  const dataValue = node.value?.val ?? node.value?.data ?? node.value?.value ?? '?';
+  // Safety checks
+  if (!node) return null;
+  
+  const nodeValue = node.value || {};
+  const dataValue = nodeValue.val ?? nodeValue.data ?? nodeValue.value ?? '?';
+  const hasNext = nodeValue.next !== null && nodeValue.next !== undefined;
   
   return (
     <motion.div
@@ -46,11 +51,11 @@ export function LinkedListNode({ node, index, isDarkMode, isHead, isTail, nodeRe
         <div className={`w-12 p-2 flex flex-col items-center justify-center ${isDarkMode ? 'bg-emerald-900/50' : 'bg-emerald-50'}`}>
           <div className={`text-[10px] font-semibold mb-1 ${isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>next</div>
           <motion.div animate={{ x: [0, 3, 0] }} transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}>
-            <ArrowRight className={`w-5 h-5 ${node.value?.next ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-600') : 'text-gray-400'}`} />
+            <ArrowRight className={`w-5 h-5 ${hasNext ? (isDarkMode ? 'text-emerald-400' : 'text-emerald-600') : 'text-gray-400'}`} />
           </motion.div>
         </div>
         
-        {isTail && (
+        {isTail && !hasNext && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
             className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-xs font-bold bg-red-500 text-white shadow-lg whitespace-nowrap z-20">
             TAIL
@@ -67,7 +72,11 @@ export function LinkedListNode({ node, index, isDarkMode, isHead, isTail, nodeRe
 
 // Binary Tree Node Component
 export function TreeNode({ node, isDarkMode, nodeRefs, level = 0 }) {
-  const dataValue = node.value?.val ?? node.value?.data ?? node.value?.value ?? '?';
+  // Safety checks
+  if (!node) return null;
+  
+  const nodeValue = node.value || {};
+  const dataValue = nodeValue.val ?? nodeValue.data ?? nodeValue.value ?? '?';
   
   return (
     <motion.div
@@ -94,21 +103,25 @@ export function TreeNode({ node, isDarkMode, nodeRefs, level = 0 }) {
 }
 
 // Main Linked List Renderer
-export function LinkedListRenderer({ nodes, connections, isDarkMode, containerRef: parentRef }) {
+export function LinkedListRenderer({ nodes = [], connections = [], isDarkMode, containerRef: parentRef }) {
   const nodeRefs = useRef({});
   const localContainerRef = useRef(null);
   const containerRef = parentRef || localContainerRef;
   const [arrows, setArrows] = useState([]);
   
   const orderedNodes = useMemo(() => {
-    if (nodes.length === 0) return [];
+    if (!nodes || nodes.length === 0) return [];
+    // Filter out any null/undefined nodes
+    const validNodes = nodes.filter(n => n && n.address);
+    if (validNodes.length === 0) return [];
+    
     // Only consider 'next' connections for ordering
-    const nextConnections = connections.filter(c => c.type === 'next');
-    const pointedTo = new Set(nextConnections.map(c => c.to));
+    const validConnections = (connections || []).filter(c => c && c.type === 'next' && c.from && c.to);
+    const pointedTo = new Set(validConnections.map(c => c.to));
     
     // Find head(s) - nodes that are not pointed to by any other node via 'next'
-    let head = nodes.find(n => !pointedTo.has(n.address));
-    if (!head) head = nodes[0]; // Fallback (e.g. circular list)
+    let head = validNodes.find(n => !pointedTo.has(n.address));
+    if (!head) head = validNodes[0]; // Fallback (e.g. circular list)
     
     const ordered = [];
     const visited = new Set();
@@ -117,12 +130,12 @@ export function LinkedListRenderer({ nodes, connections, isDarkMode, containerRe
     while (current && !visited.has(current.address)) {
       ordered.push(current);
       visited.add(current.address);
-      const nextConn = connections.find(c => c.from === current.address && c.type === 'next');
-      current = nextConn ? nodes.find(n => n.address === nextConn.to) : null;
+      const nextConn = validConnections.find(c => c.from === current.address);
+      current = nextConn ? validNodes.find(n => n.address === nextConn.to) : null;
     }
     
     // Add any disconnected nodes
-    nodes.forEach(n => { if (!visited.has(n.address)) ordered.push(n); });
+    validNodes.forEach(n => { if (!visited.has(n.address)) ordered.push(n); });
     return ordered;
   }, [nodes, connections]);
   
@@ -224,7 +237,11 @@ export function LinkedListRenderer({ nodes, connections, isDarkMode, containerRe
           <LinkedListNode key={node.address} node={node} index={idx} isDarkMode={isDarkMode}
             isHead={idx === 0} isTail={idx === orderedNodes.length - 1 && !node.value?.next} nodeRefs={nodeRefs} />
         ))}
-        {orderedNodes.length > 0 && !orderedNodes[orderedNodes.length - 1].value?.next && (
+        {orderedNodes.length > 0 && (() => {
+          const lastNode = orderedNodes[orderedNodes.length - 1];
+          const lastNodeValue = lastNode?.value || {};
+          return lastNodeValue.next === null || lastNodeValue.next === undefined;
+        })() && (
           <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
             className={`px-4 py-2 rounded-lg font-mono font-bold flex-shrink-0 ${isDarkMode ? 'bg-gray-700 text-red-400 border-2 border-red-500/50' : 'bg-gray-100 text-red-600 border-2 border-red-300'}`}>
             NULL

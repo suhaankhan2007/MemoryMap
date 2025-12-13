@@ -371,17 +371,6 @@ ptr = nullptr;`]);
   const [showExportModal, setShowExportModal] = useState(false);
   const [learningSidebarOpen, setLearningSidebarOpen] = useState(false); // Collapsed by default for better view
   const [featuredTab, setFeaturedTab] = useState("memai"); // 'memai', 'leetcode', 'learn'
-  const [showFloatingBar, setShowFloatingBar] = useState(false);
-
-  // Track scroll position for floating bar
-  useEffect(() => {
-    const handleScroll = () => {
-      // Show floating bar when scrolled past 200px
-      setShowFloatingBar(window.scrollY > 200);
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
 
   useEffect(() => {
     const savedMode = localStorage.getItem('memorymap-dark-mode');
@@ -500,52 +489,163 @@ ptr = nullptr;`]);
 
   // Generate smart fallback explanations when API isn't available
   const generateFallbackExplanation = (step, lang) => {
+    if (!step || !step.line) {
+      return `📝 **Executing Code**: Watch the memory visualization to see changes!`;
+    }
+    
     const line = step.line.trim();
     const langName = lang === 'cpp' ? 'C++' : 'C';
+    const memState = step.memoryState || {};
+    const stackCount = memState.stack?.length || 0;
+    const heapCount = memState.heap?.length || 0;
     
-    // Pattern matching for common operations
-    if (line.includes('new ') && line.includes('int')) {
-      return `🔵 **Heap Allocation**: This line allocates memory on the heap for an integer using \`new\`. The returned address is stored in a pointer variable.\n\n💡 **Deeper Insight:** Heap memory persists until explicitly freed with \`delete\`. Unlike stack memory, you control its lifetime.\n\n⚠️ **Watch Out:** Always pair \`new\` with \`delete\` to prevent memory leaks!`;
+    // === DATA STRUCTURE PATTERNS (LeetCode focus) ===
+    
+    // Linked List patterns
+    if (line.includes('new ') && (line.includes('ListNode') || line.includes('Node'))) {
+      return `🔗 **Creating Linked List Node**: Allocating a new ListNode on the heap. This node contains a value and a \`next\` pointer.\n\n💡 **LeetCode Tip:** Most linked list problems (Reverse List, Merge Lists, Cycle Detection) start by creating or traversing nodes like this.\n\n📊 Current: ${heapCount} heap allocations`;
     }
-    if (line.includes('new ') && (line.includes('Node') || line.includes('ListNode') || line.includes('TreeNode'))) {
-      return `🔵 **Node Creation**: Allocating a new node structure on the heap. This is the building block for data structures like linked lists and trees.\n\n💡 **Deeper Insight:** Each node typically contains data and pointer(s) to other nodes, creating connected structures in memory.`;
+    if (line.match(/head\s*=/) || line.includes('ListNode* head')) {
+      return `🔗 **Head Pointer**: Setting up the head pointer - your entry point to the linked list. Lose this and you lose the whole list!\n\n💡 **LeetCode Tip:** Many problems use a "dummy head" trick: \`ListNode dummy(0); dummy.next = head;\` to simplify edge cases.`;
     }
-    if (line.includes('->next')) {
-      return `🔗 **Linked List Operation**: Using the arrow operator (\`->\`) to access or modify the \`next\` pointer of a node. This connects nodes together to form a chain.\n\n💡 **Deeper Insight:** Following \`next\` pointers is O(n) traversal - each hop requires dereferencing a memory address.`;
+    if (line.includes('->next') && line.includes('=')) {
+      return `🔗 **Linking Nodes**: Connecting nodes by setting the \`next\` pointer. This is how linked lists are built and modified!\n\n💡 **LeetCode Tip:** Be careful with order - always save the next node before overwriting: \`temp = curr->next; curr->next = prev;\`\n\n⚠️ Watch the arrows update in the visualization!`;
+    }
+    if (line.includes('->next') && !line.includes('=')) {
+      return `🔗 **Traversing List**: Following the \`next\` pointer to move to the next node. This is O(1) for one hop, O(n) for full traversal.\n\n💡 **LeetCode Tip:** Two-pointer technique (slow/fast) can detect cycles and find middle elements efficiently!`;
+    }
+    if (line.includes('slow') && line.includes('fast')) {
+      return `🐢🐇 **Two Pointer Technique**: The classic slow/fast pointer pattern! Fast moves 2x speed of slow.\n\n💡 **LeetCode Tip:** Used in: Cycle Detection (Floyd's), Finding Middle, Happy Number, and more!\n\n📊 When fast reaches end, slow is at middle. If they meet, there's a cycle!`;
+    }
+    
+    // Binary Tree patterns
+    if (line.includes('new ') && line.includes('TreeNode')) {
+      return `🌳 **Creating Tree Node**: Allocating a TreeNode with a value and left/right child pointers.\n\n💡 **LeetCode Tip:** Tree problems often use recursion. Each node spawns two subproblems (left & right subtrees).\n\n📊 Current: ${heapCount} nodes in tree`;
+    }
+    if (line.includes('->left') && line.includes('=')) {
+      return `🌳 **Setting Left Child**: Connecting the left subtree. In BSTs, left children have smaller values.\n\n💡 **LeetCode Tip:** Recursive tree construction: \`root->left = buildTree(leftPart);\``;
+    }
+    if (line.includes('->right') && line.includes('=')) {
+      return `🌳 **Setting Right Child**: Connecting the right subtree. In BSTs, right children have larger values.\n\n💡 **LeetCode Tip:** For balanced trees, alternate left/right to maintain O(log n) height.`;
     }
     if (line.includes('->left') || line.includes('->right')) {
-      return `🌳 **Binary Tree Operation**: Accessing a child node pointer in a binary tree structure. Left typically holds smaller values, right holds larger (in BST).\n\n💡 **Deeper Insight:** Tree height affects performance - balanced trees give O(log n) operations.`;
+      return `🌳 **Tree Traversal**: Accessing a child node. This is the basis for DFS traversal.\n\n💡 **LeetCode Tip:** Three DFS orders: Preorder (root→left→right), Inorder (left→root→right), Postorder (left→right→root).\n\n📊 Inorder on BST gives sorted order!`;
     }
     if (line.includes('->val') || line.includes('->data')) {
-      return `📦 **Accessing Node Data**: Reading or writing the value stored in this node using the arrow operator.\n\n💡 **Deeper Insight:** The arrow operator (\`->\`) combines dereferencing (\`*\`) and member access (\`.\`) into one operation.`;
-    }
-    if (line.includes('delete ')) {
-      return `🗑️ **Memory Deallocation**: This line frees heap memory using \`delete\`. The memory is returned to the system for reuse.\n\n⚠️ **Watch Out:** After deletion, the pointer becomes "dangling" - set it to \`nullptr\` immediately to avoid use-after-free bugs!`;
-    }
-    if (line.includes('nullptr') || line.includes('NULL')) {
-      return `🚫 **Null Pointer Assignment**: Setting a pointer to null indicates it points to nothing. This is crucial after deletion or for marking list/tree ends.\n\n💡 **Deeper Insight:** Always check for null before dereferencing to prevent crashes!`;
-    }
-    if (line.includes('*') && line.includes('=') && !line.includes('new')) {
-      return `📝 **Dereferencing & Assignment**: The \`*\` operator accesses the value at the memory address stored in the pointer. This modifies the actual data in memory.\n\n💡 **Deeper Insight:** This is how we "reach through" a pointer to change what it points to.`;
-    }
-    if (line.includes('int ') || line.includes('char ') || line.includes('float ') || line.includes('double ')) {
-      if (line.includes('*')) {
-        return `📍 **Pointer Declaration**: Creating a pointer variable that will store a memory address. The \`*\` indicates this is a pointer type.\n\n💡 **Deeper Insight:** Pointers are typically 8 bytes on 64-bit systems, regardless of what type they point to.`;
-      }
-      return `📊 **Stack Variable**: Declaring a variable on the stack. Stack memory is automatically managed - it's created when the function is called and destroyed when it returns.\n\n💡 **Deeper Insight:** Stack allocation is extremely fast - just moving the stack pointer!`;
-    }
-    if (line.includes('struct ') || line.includes('class ')) {
-      return `🏗️ **Structure Definition**: Defining a custom data type that groups related variables together. Each instance will have its own copy of these members.\n\n💡 **Deeper Insight:** Structs lay out members contiguously in memory, which is cache-friendly.`;
-    }
-    if (line.includes('while') || line.includes('for')) {
-      return `🔄 **Loop Structure**: Beginning a loop that will repeat code until a condition is false. Common for traversing data structures.\n\n💡 **Deeper Insight:** When traversing linked structures, always check for null to avoid infinite loops!`;
-    }
-    if (line.includes('if') || line.includes('else')) {
-      return `🔀 **Conditional Branch**: The program will take different paths based on this condition. Essential for handling edge cases like empty lists.\n\n💡 **Deeper Insight:** Always handle null pointer cases before dereferencing!`;
+      return `📦 **Accessing Node Value**: Reading/writing the data stored in this node.\n\n💡 **LeetCode Tip:** Tree problems often aggregate values: sum paths, find max/min, check properties.\n\n⚡ Arrow operator \`->\` = dereference + member access in one!`;
     }
     
-    // Default explanation
-    return `📝 **${langName} Code**: ${line}\n\nThis line is being executed. Watch the memory visualization to see how the stack and heap change!\n\n💡 **Tip:** Step through slowly to understand each memory operation.`;
+    // Stack/Queue patterns (common in BFS)
+    if (line.includes('push') || line.includes('push_back')) {
+      return `📥 **Push Operation**: Adding an element to a stack/queue/vector. O(1) amortized for vectors.\n\n💡 **LeetCode Tip:** Stacks for DFS, Queues for BFS. \`push\` to add work, \`pop\` to process it!`;
+    }
+    if (line.includes('pop') || line.includes('pop_back')) {
+      return `📤 **Pop Operation**: Removing an element. Stack = LIFO (last in, first out), Queue = FIFO.\n\n💡 **LeetCode Tip:** Always check \`empty()\` before \`pop()\` to avoid undefined behavior!`;
+    }
+    if (line.includes('queue') || line.includes('Queue')) {
+      return `📋 **Queue Data Structure**: FIFO ordering - first in, first out. Perfect for BFS!\n\n💡 **LeetCode Tip:** Level-order traversal of trees uses a queue to process nodes level by level.`;
+    }
+    if (line.includes('stack') || line.includes('Stack')) {
+      return `📚 **Stack Data Structure**: LIFO ordering - last in, first out. Natural for DFS and recursion!\n\n💡 **LeetCode Tip:** Iterative DFS uses explicit stack. Also great for matching parentheses, monotonic problems.`;
+    }
+    
+    // Vector/Array patterns
+    if (line.includes('vector<') || line.includes('new int[')) {
+      return `📊 **Dynamic Array**: Creating a resizable array (vector) or heap array. Contiguous memory = cache-friendly!\n\n💡 **LeetCode Tip:** Vectors for dynamic sizing, arrays when size is fixed. Both give O(1) random access.`;
+    }
+    if (line.match(/\[.*\]\s*=/)) {
+      return `📊 **Array Assignment**: Writing to a specific index. O(1) direct access via memory arithmetic!\n\n💡 **LeetCode Tip:** Two-pointer on arrays: start from both ends and move inward, or use sliding window.`;
+    }
+    
+    // === MEMORY MANAGEMENT PATTERNS ===
+    
+    if (line.includes('new ') && line.includes('int')) {
+      return `🔵 **Heap Allocation**: Allocating memory for an integer on the heap. You control its lifetime!\n\n💡 **Memory Insight:** Heap is slower but flexible. Stack is fast but scoped to function.\n\n⚠️ Always pair \`new\` with \`delete\`! Current heap: ${heapCount} blocks`;
+    }
+    if (line.includes('new ')) {
+      return `🔵 **Dynamic Allocation**: Using \`new\` to allocate memory on the heap. Returns a pointer to the allocated memory.\n\n💡 **Memory Insight:** Heap memory persists until you \`delete\` it. Forgetting = memory leak!\n\n📊 Current heap usage: ${heapCount} allocations`;
+    }
+    if (line.includes('delete[]')) {
+      return `🗑️ **Array Deallocation**: Freeing a dynamically allocated array. The \`[]\` tells the system to free all elements.\n\n⚠️ **Critical:** Using \`delete\` instead of \`delete[]\` on arrays = undefined behavior!\n\n💡 Set pointer to \`nullptr\` after deletion.`;
+    }
+    if (line.includes('delete ')) {
+      return `🗑️ **Memory Deallocation**: Freeing heap memory with \`delete\`. The memory returns to the system.\n\n⚠️ **Watch Out:** Pointer is now "dangling" - using it = crash! Set to \`nullptr\` immediately.\n\n📊 Heap after: ${heapCount > 0 ? heapCount - 1 : 0} blocks`;
+    }
+    if (line.includes('nullptr') || line.includes('NULL')) {
+      return `🚫 **Null Pointer**: Setting pointer to null - it points to nothing. Essential for safety!\n\n💡 **Best Practice:** Always nullify after delete. Check for null before dereferencing.\n\n⚠️ Dereferencing null = segmentation fault!`;
+    }
+    if (line.includes('malloc') || line.includes('calloc')) {
+      return `🔵 **C-Style Allocation**: Using \`malloc\`/\`calloc\` for raw memory allocation. Returns \`void*\`.\n\n💡 **C vs C++:** Use \`new\`/\`delete\` in C++, \`malloc\`/\`free\` in C. Don't mix them!`;
+    }
+    if (line.includes('free(')) {
+      return `🗑️ **C-Style Deallocation**: Freeing memory allocated with \`malloc\`. Same dangers as \`delete\`.\n\n⚠️ Double-free = crash! Only free what you malloc'd, only once.`;
+    }
+    
+    // === POINTER OPERATIONS ===
+    
+    if (line.includes('&') && !line.includes('&&') && line.includes('=')) {
+      return `📍 **Address-Of Operator**: The \`&\` gets the memory address of a variable. Now a pointer can reference it!\n\n💡 **Pointer Insight:** This creates a connection - changing via pointer changes the original!\n\n📊 Stack: ${stackCount} vars | Heap: ${heapCount} blocks`;
+    }
+    if (line.includes('*') && line.includes('=') && !line.includes('new') && !line.includes('/*')) {
+      return `📝 **Dereferencing**: The \`*\` operator accesses the value at the pointed address. Like "follow the arrow."\n\n💡 **Key Concept:** \`*ptr = 5\` changes what ptr points TO, not ptr itself.\n\n⚡ This is how we modify heap memory!`;
+    }
+    if (line.match(/\*\s*\w+\s*=/) && !line.includes('new')) {
+      return `📍 **Pointer Assignment**: Storing an address in a pointer variable. The pointer now "points to" that location.\n\n💡 **Mental Model:** Think of pointers as arrows in memory. This sets where the arrow points.`;
+    }
+    
+    // === VARIABLE DECLARATIONS ===
+    
+    if (line.match(/(int|char|float|double|bool|long|short)\s+\w+.*\*/)) {
+      return `📍 **Pointer Declaration**: Creating a pointer variable. It will store a memory address, not a direct value.\n\n💡 **Size Fact:** Pointers are 8 bytes on 64-bit systems, regardless of what they point to!`;
+    }
+    if (line.match(/(int|char|float|double|bool|long|short)\s+\w+\s*=/)) {
+      return `📊 **Stack Variable**: Creating a local variable on the stack. Automatic lifetime - created now, destroyed when function ends.\n\n💡 **Speed:** Stack allocation is just moving a pointer - essentially free! Current stack: ${stackCount} vars`;
+    }
+    if (line.match(/(int|char|float|double|bool|long|short)\s+\w+\s*;/)) {
+      return `📊 **Variable Declaration**: Reserving space on the stack for this variable. Value is uninitialized (garbage)!\n\n⚠️ **Best Practice:** Always initialize variables! Uninitialized reads = undefined behavior.`;
+    }
+    
+    // === CONTROL FLOW ===
+    
+    if (line.includes('while') && line.includes('!=') && (line.includes('null') || line.includes('nullptr'))) {
+      return `🔄 **List/Tree Traversal Loop**: Continuing while pointer isn't null - the standard traversal pattern!\n\n💡 **LeetCode Pattern:** \`while (curr != nullptr)\` then \`curr = curr->next;\` at the end.\n\n⚡ This visits every node exactly once: O(n)`;
+    }
+    if (line.includes('while')) {
+      return `🔄 **While Loop**: Repeating code while condition is true. Common for traversing data structures.\n\n💡 **LeetCode Tip:** For linked lists: \`while(current)\`. For arrays: \`while(left < right)\`.\n\n⚠️ Ensure loop terminates - update condition inside!`;
+    }
+    if (line.includes('for')) {
+      return `🔄 **For Loop**: Compact loop with init, condition, and update in one line.\n\n💡 **LeetCode Tip:** \`for(int i=0; i<n; i++)\` for arrays, range-based \`for(auto& x : vec)\` for containers.`;
+    }
+    if (line.includes('if') && (line.includes('null') || line.includes('nullptr'))) {
+      return `🔀 **Null Check**: Checking if pointer is null before using it. Essential safety!\n\n💡 **LeetCode Pattern:** Base case in recursion often checks: \`if (!root) return;\`\n\n⚡ This prevents segfault crashes!`;
+    }
+    if (line.includes('if') || line.includes('else')) {
+      return `🔀 **Conditional Branch**: Program takes different paths based on condition. Handle edge cases!\n\n💡 **LeetCode Tip:** Common conditions: empty list, single element, null pointer, boundary check.`;
+    }
+    if (line.includes('return')) {
+      return `↩️ **Return Statement**: Exiting function and returning a value. Stack frame will be destroyed!\n\n💡 **Memory Insight:** All local variables on stack are deallocated. Returned pointers must point to heap!`;
+    }
+    
+    // === STRUCT/CLASS ===
+    
+    if (line.includes('struct ') || line.includes('class ')) {
+      return `🏗️ **Type Definition**: Creating a custom data type. Instances will have their own copy of all members.\n\n💡 **Memory Layout:** Members are stored contiguously. Order can affect size due to padding!`;
+    }
+    if (line.match(/\w+\.\w+\s*=/)) {
+      return `📦 **Member Assignment**: Setting a field of a struct/object using dot notation.\n\n💡 **Dot vs Arrow:** Use \`.\` with objects, \`->\` with pointers to objects.`;
+    }
+    
+    // === FUNCTIONS ===
+    
+    if (line.match(/^\s*(void|int|bool|char|float|double|auto|ListNode\*|TreeNode\*)\s+\w+\s*\(/)) {
+      return `🔧 **Function Definition**: Declaring a function. Each call creates a new stack frame!\n\n💡 **Recursion Insight:** Recursive calls stack up frames. Too deep = stack overflow!`;
+    }
+    if (line.match(/\w+\s*\([^)]*\)\s*;/) && !line.includes('if') && !line.includes('while')) {
+      return `📞 **Function Call**: Invoking a function. A new stack frame is created for its local variables.\n\n💡 **Memory Flow:** Args are copied (or referenced). Return pops the stack frame.`;
+    }
+    
+    // Default explanation with context
+    return `📝 **${langName} Execution**: \`${line.substring(0, 50)}${line.length > 50 ? '...' : ''}\`\n\nWatch the memory visualization update! Stack: ${stackCount} vars | Heap: ${heapCount} blocks\n\n💡 **Tip:** Step through slowly to see each memory change!`;
   };
 
   const generateExplanations = async (steps) => {
@@ -553,56 +653,79 @@ ptr = nullptr;`]);
     const newExplanations = {};
 
     try {
-      // Try API-based generation first
-      let apiWorking = true;
-      
+      // Generate high-quality fallback explanations immediately (no API dependency)
+      // This ensures the app ALWAYS works, even offline
       for (let i = 0; i < steps.length; i++) {
         const step = steps[i];
+        if (!step) continue;
         
-        // If API failed before, use fallback for remaining
-        if (!apiWorking) {
-          newExplanations[i] = generateFallbackExplanation(step, language);
-          continue;
+        // Use our comprehensive pattern-matched explanations
+        newExplanations[i] = generateFallbackExplanation(step, language);
+        
+        // Update progressively so user sees explanations appear instantly
+        if (i % 3 === 0 || i === steps.length - 1) {
+          setExplanations({...newExplanations});
         }
-        
-        const langName = language === 'cpp' ? 'C++' : 'C';
-        const prompt = `You are Mem AI, a friendly ${langName} memory tutor. Explain this line simply:
-
-Line: "${step.line}"
-Memory: Stack has ${step.memoryState.stack.length} vars, Heap has ${step.memoryState.heap.length} blocks.
-
-Give a 2-3 sentence explanation of what this line does with memory. Be concise but insightful. If it's a pointer/struct operation, explain the memory connection. End with one emoji that represents the operation.`;
-
-        try {
-          const result = await base44.integrations.Core.InvokeLLM({
-            prompt: prompt,
-          });
-          
-          if (result && result.length > 10) {
-            newExplanations[i] = result;
-          } else {
-            newExplanations[i] = generateFallbackExplanation(step, language);
-          }
-        } catch (apiError) {
-          console.warn("API call failed for step", i, "- using fallback");
-          apiWorking = false;
-          newExplanations[i] = generateFallbackExplanation(step, language);
-        }
-        
-        // Update explanations progressively so user sees them appear
-        setExplanations({...newExplanations});
       }
 
       setExplanations(newExplanations);
+      
+      // Optional: Try to enhance with AI in background (non-blocking)
+      // This is a nice-to-have, not required for functionality
+      try {
+        const shouldTryAPI = steps.length <= 10; // Only for short programs
+        if (shouldTryAPI && base44?.integrations?.Core?.InvokeLLM) {
+          // Fire and forget - don't block the UI
+          enhanceWithAI(steps, newExplanations);
+        }
+      } catch (e) {
+        // Silently ignore - fallbacks are already great
+        console.log("AI enhancement skipped");
+      }
+      
     } catch (error) {
       console.error("Error generating explanations:", error);
-      // Generate all fallbacks if total failure
+      // Even if something fails, generate basic explanations
       for (let i = 0; i < steps.length; i++) {
-        newExplanations[i] = generateFallbackExplanation(steps[i], language);
+        if (steps[i]) {
+          newExplanations[i] = generateFallbackExplanation(steps[i], language);
+        }
       }
       setExplanations(newExplanations);
     } finally {
       setIsGeneratingExplanations(false);
+    }
+  };
+  
+  // Optional AI enhancement (runs in background, non-blocking)
+  const enhanceWithAI = async (steps, existingExplanations) => {
+    try {
+      const langName = language === 'cpp' ? 'C++' : 'C';
+      
+      // Only try first 3 steps to minimize API calls
+      for (let i = 0; i < Math.min(3, steps.length); i++) {
+        const step = steps[i];
+        if (!step || !step.line) continue;
+        
+        const prompt = `You are Mem AI, a friendly ${langName} memory tutor. Explain this line simply:
+
+Line: "${step.line}"
+Memory: Stack has ${step.memoryState?.stack?.length || 0} vars, Heap has ${step.memoryState?.heap?.length || 0} blocks.
+
+Give a 2-3 sentence explanation of what this line does with memory. Be concise but insightful. End with one emoji.`;
+
+        const result = await Promise.race([
+          base44.integrations.Core.InvokeLLM({ prompt }),
+          new Promise((_, reject) => setTimeout(() => reject('timeout'), 3000))
+        ]);
+        
+        if (result && typeof result === 'string' && result.length > 20) {
+          existingExplanations[i] = result;
+          setExplanations({...existingExplanations});
+        }
+      }
+    } catch (e) {
+      // Silently fail - fallbacks are already in place
     }
   };
 
@@ -1083,11 +1206,11 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
       )}
 
       {/* ⭐ FEATURED LEARNING HUB - Collapsible Top Banner */}
-      <div className="max-w-[1920px] mx-auto px-3 sm:px-6 pt-4 sm:pt-6">
+      <div className="max-w-[1800px] mx-auto px-6 pt-6">
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`rounded-xl sm:rounded-2xl overflow-hidden shadow-2xl border-2 ${
+          className={`rounded-2xl overflow-hidden shadow-2xl border-2 ${
             isDarkMode 
               ? 'bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 border-purple-500' 
               : 'bg-gradient-to-br from-indigo-100 via-purple-100 to-pink-100 border-purple-400'
@@ -1096,30 +1219,30 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
           {/* Compact Header - Always Visible */}
           <button
             onClick={() => setLearningSidebarOpen(!learningSidebarOpen)}
-            className={`w-full p-2 sm:p-3 ${
+            className={`w-full p-3 ${
               isDarkMode 
                 ? 'bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500' 
                 : 'bg-gradient-to-r from-purple-500 via-pink-500 to-orange-400'
             } text-white hover:brightness-110 transition-all`}
           >
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 sm:gap-4">
+              <div className="flex items-center gap-4">
                 <motion.div 
                   animate={{ rotate: learningSidebarOpen ? [0, 10, -10, 0] : 0 }}
                   transition={{ duration: 2, repeat: learningSidebarOpen ? Infinity : 0 }}
-                  className="text-lg sm:text-xl"
+                  className="text-xl"
                 >
                   ✨
                 </motion.div>
                 <div className="text-left">
-                  <h3 className="font-bold text-xs sm:text-sm md:text-base">Learning Hub</h3>
-                  <p className="text-[9px] sm:text-[10px] md:text-xs text-white/80 hidden xs:block">
-                    Mem AI • LeetCode • Resources
+                  <h3 className="font-bold text-sm md:text-base">Learning Hub</h3>
+                  <p className="text-[10px] md:text-xs text-white/80 hidden sm:block">
+                    Resources • LeetCode • AI Explanations
                   </p>
                 </div>
                 
-                {/* Quick Tab Buttons - Hidden on mobile, shown on tablet+ */}
-                <div className="hidden lg:flex items-center gap-2 ml-4">
+                {/* Quick Tab Buttons */}
+                <div className="hidden md:flex items-center gap-2 ml-4">
                   {[
                     { id: 'memai', icon: '🧠', label: 'Mem AI' },
                     { id: 'leetcode', icon: '🏆', label: 'LeetCode' },
@@ -1144,21 +1267,21 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
                 </div>
               </div>
               
-              <div className="flex items-center gap-2 sm:gap-3">
+              <div className="flex items-center gap-3">
                 {currentProblem && (
-                  <span className="hidden sm:flex items-center gap-1 px-2 py-1 bg-yellow-400 text-gray-900 rounded-full text-[10px] sm:text-xs font-bold">
+                  <span className="hidden sm:flex items-center gap-1 px-2 py-1 bg-yellow-400 text-gray-900 rounded-full text-xs font-bold">
                     <Trophy className="w-3 h-3" />
                     #{currentProblem.id}
                   </span>
                 )}
-                <span className="hidden sm:inline px-2 py-1 bg-white/20 rounded-full text-[10px] sm:text-xs font-bold backdrop-blur-sm">
+                <span className="px-2 py-1 bg-white/20 rounded-full text-xs font-bold backdrop-blur-sm">
                   🔥 Featured
                 </span>
                 <motion.div
                   animate={{ rotate: learningSidebarOpen ? 180 : 0 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <ChevronDown className="w-5 h-5" />
                 </motion.div>
               </div>
             </div>
@@ -1176,37 +1299,37 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
               >
                 {/* Tabs */}
                 <Tabs value={featuredTab} onValueChange={setFeaturedTab} className="w-full">
-                  <TabsList className={`w-full grid grid-cols-3 h-10 sm:h-12 rounded-none ${
+                  <TabsList className={`w-full grid grid-cols-3 h-12 rounded-none ${
                     isDarkMode ? 'bg-gray-800/50' : 'bg-white/50'
                   }`}>
                     <TabsTrigger 
                       value="memai" 
-                      className={`gap-1 sm:gap-2 text-xs sm:text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
+                      className={`gap-2 text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:to-pink-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
                     >
-                      <Zap className="w-3 h-3 sm:w-4 sm:h-4" />
+                      <Zap className="w-4 h-4" />
                       <span className="hidden sm:inline">🧠 Mem AI</span>
-                      <span className="sm:hidden text-[11px]">🧠 AI</span>
+                      <span className="sm:hidden">🧠</span>
                     </TabsTrigger>
                     <TabsTrigger 
                       value="leetcode" 
-                      className={`gap-1 sm:gap-2 text-xs sm:text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-500 data-[state=active]:to-orange-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
+                      className={`gap-2 text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-500 data-[state=active]:to-orange-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
                     >
-                      <Trophy className="w-3 h-3 sm:w-4 sm:h-4" />
+                      <Trophy className="w-4 h-4" />
                       <span className="hidden sm:inline">🏆 LeetCode</span>
-                      <span className="sm:hidden text-[11px]">🏆 LC</span>
+                      <span className="sm:hidden">🏆</span>
                     </TabsTrigger>
                     <TabsTrigger 
                       value="learn" 
-                      className={`gap-1 sm:gap-2 text-xs sm:text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-indigo-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
+                      className={`gap-2 text-sm font-bold data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-indigo-500 data-[state=active]:text-white data-[state=active]:shadow-lg transition-all`}
                     >
-                      <GraduationCap className="w-3 h-3 sm:w-4 sm:h-4" />
+                      <GraduationCap className="w-4 h-4" />
                       <span className="hidden sm:inline">📚 Learn</span>
-                      <span className="sm:hidden text-[11px]">📚</span>
+                      <span className="sm:hidden">📚</span>
                     </TabsTrigger>
                   </TabsList>
 
-                  {/* Tab Contents - Full Width Panel */}
-                  <div className={`p-3 sm:p-4 ${isDarkMode ? 'bg-gray-800/30' : 'bg-white/30'} max-h-[60vh] sm:max-h-[450px] overflow-y-auto`}>
+                  {/* Tab Contents - Larger Panel with Better Layout */}
+                  <div className={`p-4 ${isDarkMode ? 'bg-gray-800/30' : 'bg-white/30'} max-h-[450px] overflow-y-auto`}>
                     <TabsContent value="memai" className="m-0">
                       <div className="max-w-3xl mx-auto">
                         <ExplanationPanel
@@ -1221,24 +1344,39 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
                     </TabsContent>
 
                     <TabsContent value="leetcode" className="m-0">
-                      {/* LeetCode takes FULL WIDTH */}
-                      <LeetCodePanel
-                        onLoadProblem={handleLoadLeetCodeProblem}
-                        currentProblem={currentProblem}
-                        isDarkMode={isDarkMode}
-                        isOpen={true}
-                        onToggle={() => {}}
-                      />
+                      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div className="lg:col-span-2">
+                          <LeetCodePanel
+                            onLoadProblem={handleLoadLeetCodeProblem}
+                            currentProblem={currentProblem}
+                            isDarkMode={isDarkMode}
+                            isOpen={true}
+                            onToggle={() => {}}
+                          />
+                        </div>
+                        {currentProblem && (
+                          <div>
+                            <ComplexityBadge
+                              timeComplexity={currentProblem.timeComplexity}
+                              spaceComplexity={currentProblem.spaceComplexity}
+                              pattern={currentProblem.pattern}
+                              isDarkMode={isDarkMode}
+                            />
+                          </div>
+                        )}
+                      </div>
                     </TabsContent>
 
                     <TabsContent value="learn" className="m-0">
-                      <LearningSidebar
-                        code={code}
-                        currentProblem={currentProblem}
-                        isDarkMode={isDarkMode}
-                        isOpen={true}
-                        onToggle={() => {}}
-                      />
+                      <div className="max-w-4xl mx-auto">
+                        <LearningSidebar
+                          code={code}
+                          currentProblem={currentProblem}
+                          isDarkMode={isDarkMode}
+                          isOpen={true}
+                          onToggle={() => {}}
+                        />
+                      </div>
                     </TabsContent>
                   </div>
                 </Tabs>
@@ -1249,18 +1387,17 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
       </div>
 
       {/* Main Content - Code Editor & Visualization Side by Side */}
-      <div className="max-w-[1920px] mx-auto px-3 sm:px-6 py-4 sm:py-6">
-        <div className="grid lg:grid-cols-2 gap-4 sm:gap-6">
+      <div className="max-w-[1800px] mx-auto px-6 py-6">
+        <div className="grid lg:grid-cols-2 gap-6">
           {/* Left: Code Editor */}
-          <div className="space-y-3 sm:space-y-4">
-            <Card className={`p-3 sm:p-5 ${cardClass} shadow-2xl border-2`}>
-              <div className="flex items-center justify-between mb-2 sm:mb-3">
-                <h2 className={`text-base sm:text-lg font-bold ${textClass} flex items-center gap-2`}>
+          <div className="space-y-4">
+            <Card className={`p-5 ${cardClass} shadow-2xl border-2`}>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className={`text-lg font-bold ${textClass} flex items-center gap-2`}>
                   <div className={`w-2 h-2 ${language === 'cpp' ? 'bg-purple-500' : 'bg-blue-500'} rounded-full animate-pulse`}></div>
-                  <span className="hidden sm:inline">{language === 'cpp' ? 'C++' : 'C'} Code Editor</span>
-                  <span className="sm:hidden">{language === 'cpp' ? 'C++' : 'C'}</span>
+                  {language === 'cpp' ? 'C++' : 'C'} Code Editor
                 </h2>
-                <span className="text-[10px] sm:text-xs font-semibold text-purple-600 bg-purple-100 px-2 sm:px-3 py-1 rounded-full">
+                <span className="text-xs font-semibold text-purple-600 bg-purple-100 px-3 py-1 rounded-full">
                   Max 30 lines
                 </span>
               </div>
@@ -1276,9 +1413,9 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
               />
             </Card>
 
-            {/* Debugging Panels - Responsive */}
+            {/* Debugging Panels - Compact */}
             {executionSteps.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <CallStackPanel
                   callStack={currentMemoryState.callStack}
                   isDarkMode={isDarkMode}
@@ -1301,20 +1438,20 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
 
           {/* Right: Memory Visualization */}
           <div>
-            <Card className={`p-4 sm:p-6 lg:p-8 ${cardClass} shadow-2xl border-2 min-h-[400px] sm:min-h-[500px] lg:min-h-[700px]`}>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 mb-4 sm:mb-6">
-                <h2 className={`text-base sm:text-lg lg:text-xl font-bold ${textClass}`}>Memory Visualization</h2>
-                <div className="flex gap-2 sm:gap-4 text-[10px] sm:text-sm font-medium flex-wrap">
-                  <div className="flex items-center gap-1 sm:gap-2">
-                    <div className="w-3 h-3 sm:w-4 sm:h-4 bg-gradient-to-r from-blue-400 to-blue-500 rounded shadow-sm"></div>
+            <Card className={`p-8 ${cardClass} shadow-2xl border-2 min-h-[700px]`}>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className={`text-xl font-bold ${textClass}`}>Memory Visualization</h2>
+                <div className="flex gap-4 text-sm font-medium">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-gradient-to-r from-blue-400 to-blue-500 rounded shadow-sm"></div>
                     <span className={secondaryTextClass}>Stack</span>
                   </div>
-                  <div className="flex items-center gap-1 sm:gap-2">
-                    <div className="w-3 h-3 sm:w-4 sm:h-4 bg-gradient-to-r from-orange-400 to-red-500 rounded shadow-sm"></div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-gradient-to-r from-orange-400 to-red-500 rounded shadow-sm"></div>
                     <span className={secondaryTextClass}>Heap</span>
                   </div>
-                  <div className="flex items-center gap-1 sm:gap-2">
-                    <div className="w-3 h-3 sm:w-4 sm:h-4 bg-gradient-to-r from-green-400 to-green-500 rounded shadow-sm"></div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-gradient-to-r from-green-400 to-green-500 rounded shadow-sm"></div>
                     <span className={secondaryTextClass}>Pointer</span>
                   </div>
                 </div>
@@ -1399,137 +1536,6 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
           </motion.div>
         )}
       </div>
-
-      {/* 🎮 FLOATING CONTROL BAR - Appears when scrolled down */}
-      <AnimatePresence>
-        {showFloatingBar && executionSteps.length > 0 && (
-          <motion.div
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-50 ${
-              isDarkMode 
-                ? 'bg-gray-900/95 border-purple-500/50' 
-                : 'bg-white/95 border-purple-300'
-            } backdrop-blur-xl rounded-2xl shadow-2xl border-2 px-3 sm:px-4 py-2 sm:py-3`}
-          >
-            <div className="flex items-center gap-2 sm:gap-3">
-              {/* Step Counter */}
-              <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg ${
-                isDarkMode ? 'bg-purple-900/50' : 'bg-purple-100'
-              }`}>
-                <span className={`text-xs font-bold ${isDarkMode ? 'text-purple-300' : 'text-purple-700'}`}>
-                  Step {currentStep + 1}/{executionSteps.length}
-                </span>
-              </div>
-
-              {/* Mobile Step Counter */}
-              <span className={`sm:hidden text-xs font-bold px-2 py-1 rounded ${
-                isDarkMode ? 'bg-purple-900/50 text-purple-300' : 'bg-purple-100 text-purple-700'
-              }`}>
-                {currentStep + 1}/{executionSteps.length}
-              </span>
-
-              {/* Divider */}
-              <div className={`w-px h-6 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`} />
-
-              {/* Control Buttons */}
-              {!isRunning ? (
-                <Button 
-                  onClick={handleAutoRun} 
-                  size="sm" 
-                  className="h-8 px-3 bg-green-500 hover:bg-green-600 text-white text-xs gap-1"
-                  disabled={currentStep >= executionSteps.length - 1}
-                >
-                  <Play className="w-3 h-3 sm:w-4 sm:h-4" />
-                  <span className="hidden sm:inline">Run</span>
-                </Button>
-              ) : (
-                <Button 
-                  onClick={handlePause} 
-                  size="sm" 
-                  className="h-8 px-3 bg-orange-500 hover:bg-orange-600 text-white text-xs gap-1"
-                >
-                  <Pause className="w-3 h-3 sm:w-4 sm:h-4" />
-                  <span className="hidden sm:inline">Pause</span>
-                </Button>
-              )}
-
-              <Button 
-                onClick={handleStep} 
-                size="sm" 
-                className={`h-8 px-3 text-xs gap-1 ${
-                  isDarkMode 
-                    ? 'bg-blue-600 hover:bg-blue-700 text-white' 
-                    : 'bg-blue-500 hover:bg-blue-600 text-white'
-                }`}
-                disabled={isRunning || currentStep >= executionSteps.length - 1}
-              >
-                <SkipForward className="w-3 h-3 sm:w-4 sm:h-4" />
-                <span className="hidden sm:inline">Step</span>
-              </Button>
-
-              <Button 
-                onClick={handleReset} 
-                size="sm" 
-                variant="outline"
-                className={`h-8 w-8 p-0 ${isDarkMode ? 'border-gray-600 hover:bg-gray-800' : ''}`}
-                title="Reset"
-              >
-                <RotateCcw className="w-3 h-3 sm:w-4 sm:h-4" />
-              </Button>
-
-              {/* Divider */}
-              <div className={`w-px h-6 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`} />
-
-              {/* Speed Control */}
-              <div className="hidden md:flex items-center gap-2">
-                <span className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Speed</span>
-                <Slider 
-                  value={[runSpeed]} 
-                  onValueChange={(v) => setRunSpeed(v[0])} 
-                  min={300} 
-                  max={3000} 
-                  step={300} 
-                  className="w-16" 
-                />
-              </div>
-
-              {/* Mem AI Button */}
-              <Button
-                onClick={() => {
-                  setFeaturedTab('memai');
-                  setLearningSidebarOpen(true);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                size="sm"
-                className={`h-8 px-2 sm:px-3 text-xs gap-1 ${
-                  isDarkMode 
-                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700' 
-                    : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600'
-                } text-white`}
-              >
-                🧠
-                <span className="hidden sm:inline">Mem AI</span>
-              </Button>
-
-              {/* Scroll to Top */}
-              <Button
-                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                size="sm"
-                variant="ghost"
-                className={`h-8 w-8 p-0 ${isDarkMode ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
-                title="Scroll to top"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                </svg>
-              </Button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

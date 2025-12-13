@@ -57,24 +57,30 @@ function isBinaryTreeNode(structDef) {
  * Parse and simulate C++ code execution
  */
 export function parseAndSimulateCpp(code) {
-  resetAddressCounter();
-  
-  const allLines = code.split('\n');
-  const steps = [];
-  
-  // Global memory state
-  const heap = new Map();
-  const pointers = new Map();
-  const references = new Map();
-  const danglingPointers = new Set();
-  const memoryLeaks = new Set();
-  const structs = new Map();
-  const functions = new Map();
-  
-  // Stack frames for function calls
-  const callStack = [{ name: 'main', variables: new Map(), lineOffset: 0 }];
-  
-  let skipUntilLine = -1;
+  try {
+    resetAddressCounter();
+    
+    if (!code || typeof code !== 'string') {
+      console.warn("Invalid code input");
+      return [];
+    }
+    
+    const allLines = code.split('\n');
+    const steps = [];
+    
+    // Global memory state
+    const heap = new Map();
+    const pointers = new Map();
+    const references = new Map();
+    const danglingPointers = new Set();
+    const memoryLeaks = new Set();
+    const structs = new Map();
+    const functions = new Map();
+    
+    // Stack frames for function calls
+    const callStack = [{ name: 'main', variables: new Map(), lineOffset: 0 }];
+    
+    let skipUntilLine = -1;
   
   // First pass: Extract struct/class and function definitions
   for (let i = 0; i < allLines.length; i++) {
@@ -895,145 +901,173 @@ export function parseAndSimulateCpp(code) {
     return parseValue(expr, 'int'); // Default to int
   }
   
-  // Second pass: Execute main code
+  // Second pass: Execute main code with safety wrapper
   allLines.forEach((line, index) => {
-    const trimmedLine = line.trim();
-    
-    if (!trimmedLine || trimmedLine.startsWith('//') || trimmedLine.startsWith('/*')) {
-      return;
-    }
-    
-    // Skip struct/class definitions
-    if (trimmedLine.match(/^(?:struct|class)\s+\w+/)) {
-      skipUntilLine = index;
-      let braceCount = 0;
-      for (let i = index; i < allLines.length; i++) {
-        if (allLines[i].includes('{')) braceCount++;
-        if (allLines[i].includes('}')) {
-          braceCount--;
-          if (braceCount === 0) {
-            skipUntilLine = i;
-            break;
+    try {
+      const trimmedLine = line.trim();
+      
+      if (!trimmedLine || trimmedLine.startsWith('//') || trimmedLine.startsWith('/*')) {
+        return;
+      }
+      
+      // Skip struct/class definitions
+      if (trimmedLine.match(/^(?:struct|class)\s+\w+/)) {
+        skipUntilLine = index;
+        let braceCount = 0;
+        for (let i = index; i < allLines.length; i++) {
+          if (allLines[i].includes('{')) braceCount++;
+          if (allLines[i].includes('}')) {
+            braceCount--;
+            if (braceCount === 0) {
+              skipUntilLine = i;
+              break;
+            }
           }
         }
+        return;
       }
-      return;
-    }
-    
-    if (index <= skipUntilLine) return;
-    
-    // Skip function definitions (except main)
-    if (trimmedLine.match(new RegExp(`^\\s*(${TYPE_PATTERN})\\s+(\\w+)\\s*\\([^)]*\\)\\s*\\{?`)) && !trimmedLine.includes('main')) {
-      skipUntilLine = index;
-      let braceCount = 1;
-      for (let i = index + 1; i < allLines.length; i++) {
-        if (allLines[i].includes('{')) braceCount++;
-        if (allLines[i].includes('}')) {
-          braceCount--;
-          if (braceCount === 0) {
-            skipUntilLine = i;
-            break;
+      
+      if (index <= skipUntilLine) return;
+      
+      // Skip function definitions (except main)
+      if (trimmedLine.match(new RegExp(`^\\s*(${TYPE_PATTERN})\\s+(\\w+)\\s*\\([^)]*\\)\\s*\\{?`)) && !trimmedLine.includes('main')) {
+        skipUntilLine = index;
+        let braceCount = 1;
+        for (let i = index + 1; i < allLines.length; i++) {
+          if (allLines[i].includes('{')) braceCount++;
+          if (allLines[i].includes('}')) {
+            braceCount--;
+            if (braceCount === 0) {
+              skipUntilLine = i;
+              break;
+            }
           }
         }
+        return;
       }
-      return;
+      
+      const currentFrame = callStack[callStack.length - 1];
+      if (currentFrame) {
+        executeLine(line, index, currentFrame);
+      }
+    } catch (lineError) {
+      console.warn(`Error executing line ${index + 1}: "${line}"`, lineError);
+      // Continue to next line instead of crashing
     }
-    
-    const currentFrame = callStack[callStack.length - 1];
-    executeLine(line, index, currentFrame);
   });
   
   console.log(`Generated ${steps.length} execution steps`);
   return steps;
+  } catch (error) {
+    console.error("Fatal error in parseAndSimulateCpp:", error);
+    return []; // Return empty steps instead of crashing
+  }
 }
 
 function addStep(steps, lineNumber, line, callStack, heap, pointers, references, danglingPointers) {
-  const currentFrame = callStack[callStack.length - 1];
-  const pointerArrows = [];
-  const linkedListConnections = [];
-  const treeConnections = [];
-  
-  // Add pointer arrows
-  for (const [ptrName, targetAddr] of pointers.entries()) {
-    const varEntry = currentFrame.variables.get(ptrName);
-    if (varEntry && (varEntry.type.includes('*') || varEntry.isVector) && varEntry.value === targetAddr) {
-        pointerArrows.push({
-            from: ptrName,
-            to: targetAddr,
-            isDangling: danglingPointers.has(ptrName),
-            type: varEntry.isNodePointer ? 'node_pointer' : (varEntry.type.includes('*') ? 'pointer' : 'vector_data_ptr'),
-            dataStructureType: varEntry.dataStructureType,
-        });
+  try {
+    const currentFrame = callStack[callStack.length - 1];
+    if (!currentFrame) {
+      console.warn("No current frame available");
+      return;
     }
-  }
-  
-  // Add reference arrows
-  for (const [refName, targetAddr] of references.entries()) {
-    pointerArrows.push({
-      from: refName,
-      to: targetAddr,
-      isDangling: false,
-      type: 'reference',
-    });
-  }
-  
-  // Add linked list node connections (next/prev pointers)
-  for (const [addr, node] of heap.entries()) {
-    if (node.isLinkedListNode && node.value && !node.isDeleted) {
-      // Check for 'next' pointer
-      if (node.value.next && node.value.next !== null) {
-        linkedListConnections.push({
-          from: addr,
-          to: node.value.next,
-          type: 'next',
-          dataStructure: 'linked_list',
-        });
-      }
-      // Check for 'prev' pointer (doubly linked)
-      if (node.value.prev && node.value.prev !== null) {
-        linkedListConnections.push({
-          from: addr,
-          to: node.value.prev,
-          type: 'prev',
-          dataStructure: 'linked_list',
-        });
+    
+    const pointerArrows = [];
+    const linkedListConnections = [];
+    const treeConnections = [];
+    
+    // Add pointer arrows with safety checks
+    for (const [ptrName, targetAddr] of pointers.entries()) {
+      try {
+        const varEntry = currentFrame.variables.get(ptrName);
+        if (varEntry && (varEntry.type?.includes('*') || varEntry.isVector) && varEntry.value === targetAddr) {
+            pointerArrows.push({
+                from: ptrName,
+                to: targetAddr,
+                isDangling: danglingPointers.has(ptrName),
+                type: varEntry.isNodePointer ? 'node_pointer' : (varEntry.type?.includes('*') ? 'pointer' : 'vector_data_ptr'),
+                dataStructureType: varEntry.dataStructureType || null,
+            });
+        }
+      } catch (e) {
+        console.warn("Error processing pointer:", ptrName, e);
       }
     }
     
-    // Add binary tree connections
-    if (node.isBinaryTreeNode && node.value && !node.isDeleted) {
-      if (node.value.left && node.value.left !== null) {
-        treeConnections.push({
-          from: addr,
-          to: node.value.left,
-          type: 'left',
-          dataStructure: 'binary_tree',
-        });
-      }
-      if (node.value.right && node.value.right !== null) {
-        treeConnections.push({
-          from: addr,
-          to: node.value.right,
-          type: 'right',
-          dataStructure: 'binary_tree',
-        });
+    // Add reference arrows
+    for (const [refName, targetAddr] of references.entries()) {
+      pointerArrows.push({
+        from: refName,
+        to: targetAddr,
+        isDangling: false,
+        type: 'reference',
+      });
+    }
+    
+    // Add linked list node connections (next/prev pointers) with safety checks
+    for (const [addr, node] of heap.entries()) {
+      try {
+        if (node && node.isLinkedListNode && node.value && !node.isDeleted) {
+          // Check for 'next' pointer
+          if (node.value.next && node.value.next !== null) {
+            linkedListConnections.push({
+              from: addr,
+              to: node.value.next,
+              type: 'next',
+              dataStructure: 'linked_list',
+            });
+          }
+          // Check for 'prev' pointer (doubly linked)
+          if (node.value.prev && node.value.prev !== null) {
+            linkedListConnections.push({
+              from: addr,
+              to: node.value.prev,
+              type: 'prev',
+              dataStructure: 'linked_list',
+            });
+          }
+        }
+    
+        // Add binary tree connections
+        if (node && node.isBinaryTreeNode && node.value && !node.isDeleted) {
+          if (node.value.left && node.value.left !== null) {
+            treeConnections.push({
+              from: addr,
+              to: node.value.left,
+              type: 'left',
+              dataStructure: 'binary_tree',
+            });
+          }
+          if (node.value.right && node.value.right !== null) {
+            treeConnections.push({
+              from: addr,
+              to: node.value.right,
+              type: 'right',
+              dataStructure: 'binary_tree',
+            });
+          }
+        }
+      } catch (nodeError) {
+        console.warn("Error processing heap node:", addr, nodeError);
       }
     }
+    
+    steps.push({
+      lineNumber: lineNumber,
+      line: line || '',
+      memoryState: {
+        stack: Array.from(currentFrame.variables.values() || []),
+        heap: Array.from(heap.entries()).map(([addr, data]) => ({ ...(data || {}), address: addr })),
+        pointers: pointerArrows,
+        linkedListConnections,
+        treeConnections,
+        danglingPointers: Array.from(danglingPointers || []),
+        callStack: callStack.map(frame => ({ name: frame?.name || 'unknown', varCount: frame?.variables?.size || 0 })),
+      },
+    });
+  } catch (stepError) {
+    console.error("Error in addStep:", stepError);
   }
-  
-  steps.push({
-    lineNumber: lineNumber,
-    line: line,
-    memoryState: {
-      stack: Array.from(currentFrame.variables.values()),
-      heap: Array.from(heap.entries()).map(([addr, data]) => ({ ...data, address: addr })),
-      pointers: pointerArrows,
-      linkedListConnections,
-      treeConnections,
-      danglingPointers: Array.from(danglingPointers),
-      callStack: callStack.map(frame => ({ name: frame.name, varCount: frame.variables.size })),
-    },
-  });
 }
 
 function normalizeType(type) {
