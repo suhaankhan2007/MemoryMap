@@ -2,7 +2,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Database, Trash2, AlertTriangle, Box, Layers, Braces } from "lucide-react";
 
-export default function HeapBlock({ block, isDarkMode, isLeaked }) {
+export default function HeapBlock({ block, isDarkMode, isLeaked, isInCycle = false, linkedListConnections = [] }) {
   const formatValue = (value) => {
     if (value === null || value === undefined) return 'null';
     if (typeof value === 'string') {
@@ -99,22 +99,36 @@ export default function HeapBlock({ block, isDarkMode, isLeaked }) {
       className="relative group"
     >
       {/* 3D Card Container */}
-      <div 
+      <motion.div 
         className={`bg-gradient-to-br ${gradientClass} rounded-2xl p-5 text-white border-2 transition-all duration-300 ${
           isDeleted 
             ? 'border-gray-400 opacity-50' 
-            : isLeaked 
-              ? 'border-red-300 ring-2 ring-red-400 ring-offset-2 ring-offset-transparent' 
-              : 'border-white/30 group-hover:border-white/50'
+            : isInCycle
+              ? 'border-orange-400 ring-4 ring-orange-400/60 ring-offset-2 ring-offset-transparent'
+              : isLeaked 
+                ? 'border-red-300 ring-2 ring-red-400 ring-offset-2 ring-offset-transparent' 
+                : 'border-white/30 group-hover:border-white/50'
         }`}
         style={shadowStyle}
+        animate={isInCycle ? {
+          boxShadow: [
+            '0 10px 30px -10px rgba(0, 0, 0, 0.4), 0 20px 50px -20px rgba(249, 115, 22, 0.4), 0 0 0 0 rgba(249, 115, 22, 0.7)',
+            '0 10px 30px -10px rgba(0, 0, 0, 0.4), 0 20px 50px -20px rgba(249, 115, 22, 0.6), 0 0 0 8px rgba(249, 115, 22, 0)',
+            '0 10px 30px -10px rgba(0, 0, 0, 0.4), 0 20px 50px -20px rgba(249, 115, 22, 0.4), 0 0 0 0 rgba(249, 115, 22, 0.7)',
+          ]
+        } : {}}
+        transition={isInCycle ? {
+          duration: 2,
+          repeat: Infinity,
+          ease: "easeInOut"
+        } : {}}
       >
         {/* Memory Leak Badge */}
         {isLeaked && !isDeleted && (
           <motion.div
             initial={{ scale: 0, rotate: -10 }}
             animate={{ scale: 1, rotate: 0 }}
-            className="absolute -top-3 -right-3 bg-gradient-to-r from-red-500 to-red-600 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-xl flex items-center gap-1.5 border border-red-400"
+            className="absolute -top-3 -right-3 bg-gradient-to-r from-red-500 to-red-600 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-xl flex items-center gap-1.5 border border-red-400 z-10"
           >
             <motion.span
               animate={{ scale: [1, 1.2, 1] }}
@@ -123,6 +137,29 @@ export default function HeapBlock({ block, isDarkMode, isLeaked }) {
               <AlertTriangle className="w-3.5 h-3.5" />
             </motion.span>
             LEAK
+          </motion.div>
+        )}
+        
+        {/* Cycle Badge - Very prominent */}
+        {isInCycle && !isDeleted && (
+          <motion.div
+            initial={{ scale: 0, rotate: 10 }}
+            animate={{ 
+              scale: [1, 1.15, 1],
+              rotate: 0,
+            }}
+            transition={{
+              scale: { duration: 1.5, repeat: Infinity, ease: "easeInOut" }
+            }}
+            className={`absolute -top-4 ${isLeaked ? '-left-4' : '-right-4'} bg-gradient-to-r from-orange-500 via-pink-500 to-orange-500 text-white px-4 py-2 rounded-full text-sm font-bold shadow-2xl flex items-center gap-2 border-2 border-orange-300 z-10`}
+          >
+            <motion.span
+              animate={{ rotate: [0, 360] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+            >
+              🔄
+            </motion.span>
+            <span className="text-xs">IN CYCLE</span>
           </motion.div>
         )}
 
@@ -182,17 +219,51 @@ export default function HeapBlock({ block, isDarkMode, isLeaked }) {
           <div className="space-y-2">
             <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20">
               <div className="text-xs opacity-75 mb-2 font-semibold">Members:</div>
-              {block.members?.map((member, idx) => (
-                <div 
-                  key={idx}
-                  className="flex items-center justify-between py-1.5 border-b border-white/10 last:border-0"
-                >
-                  <span className="text-xs opacity-75">.{member.name}</span>
-                  <span className="font-mono text-sm font-bold">
-                    {formatValue(block.value?.[member.name])}
-                  </span>
-                </div>
-              ))}
+              {block.members?.map((member, idx) => {
+                const memberValue = block.value?.[member.name];
+                const isNextPointer = member.name === 'next' || member.name === 'Next';
+                const nextValue = memberValue;
+                // Check if this next pointer creates a cycle
+                const createsCycle = isNextPointer && isInCycle && nextValue && 
+                  linkedListConnections.some(conn => 
+                    conn.from === block.address && conn.to === nextValue && conn.type === 'next'
+                  );
+                
+                return (
+                  <motion.div 
+                    key={idx}
+                    className={`flex items-center justify-between py-2 border-b border-white/10 last:border-0 ${
+                      createsCycle 
+                        ? 'bg-gradient-to-r from-orange-500/40 to-pink-500/40 rounded-lg px-3 -mx-3 border-2 border-orange-400/60' 
+                        : ''
+                    }`}
+                    animate={createsCycle ? {
+                      scale: [1, 1.02, 1],
+                    } : {}}
+                    transition={createsCycle ? {
+                      duration: 1.5,
+                      repeat: Infinity,
+                      ease: "easeInOut"
+                    } : {}}
+                  >
+                    <span className={`text-sm ${createsCycle ? 'font-bold text-orange-100 flex items-center gap-2' : 'opacity-75'}`}>
+                      <span>.{member.name}</span>
+                      {createsCycle && (
+                        <motion.span
+                          animate={{ rotate: [0, 360] }}
+                          transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                          className="text-lg"
+                        >
+                          🔄
+                        </motion.span>
+                      )}
+                    </span>
+                    <span className={`font-mono text-base font-bold ${createsCycle ? 'text-orange-100' : ''}`}>
+                      {formatValue(memberValue)}
+                    </span>
+                  </motion.div>
+                );
+              })}
             </div>
           </div>
         ) : (
@@ -229,7 +300,7 @@ export default function HeapBlock({ block, isDarkMode, isLeaked }) {
             </motion.div>
           )}
         </div>
-      </div>
+      </motion.div>
     </motion.div>
   );
 }

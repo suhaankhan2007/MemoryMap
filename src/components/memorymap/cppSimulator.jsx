@@ -976,23 +976,75 @@ function addStep(steps, lineNumber, line, callStack, heap, pointers, references,
     const linkedListConnections = [];
     const treeConnections = [];
     
+    // #region agent log
+    try {
+      const logData = {
+        location: 'cppSimulator.jsx:979',
+        message: 'addStep - processing pointers',
+        data: {
+          pointersMapSize: pointers?.size || 0,
+          pointersEntries: pointers ? Array.from(pointers.entries()).map(([k, v]) => ({ name: String(k), addr: String(v) })) : [],
+          currentFrameVars: currentFrame?.variables ? Array.from(currentFrame.variables.keys()).map(k => String(k)) : []
+        },
+        timestamp: Date.now(),
+        sessionId: 'debug-session',
+        runId: 'run1',
+        hypothesisId: 'F'
+      };
+      fetch('http://127.0.0.1:7242/ingest/25914bc0-dac6-4278-a034-bc80fa884df5', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(logData)
+      }).catch(() => {});
+    } catch (logError) {
+      // Silently ignore logging errors
+    }
+    // #endregion
+    
     // Add pointer arrows with safety checks
+    console.log('[Simulator Debug] Processing pointers:', {
+      pointersMapSize: pointers.size,
+      pointersEntries: Array.from(pointers.entries()),
+      currentFrameVars: Array.from(currentFrame.variables.keys())
+    });
+    
     for (const [ptrName, targetAddr] of pointers.entries()) {
       try {
         const varEntry = currentFrame.variables.get(ptrName);
-        if (varEntry && (varEntry.type?.includes('*') || varEntry.isVector) && varEntry.value === targetAddr) {
-            pointerArrows.push({
-                from: ptrName,
-                to: targetAddr,
-                isDangling: danglingPointers.has(ptrName),
-                type: varEntry.isNodePointer ? 'node_pointer' : (varEntry.type?.includes('*') ? 'pointer' : 'vector_data_ptr'),
-                dataStructureType: varEntry.dataStructureType || null,
-            });
+        console.log('[Simulator Debug] Checking pointer:', {
+          ptrName,
+          targetAddr,
+          hasVarEntry: !!varEntry,
+          varType: varEntry?.type,
+          isPointer: varEntry?.type?.includes('*'),
+          isVector: varEntry?.isVector
+        });
+        
+        // If variable exists and is a pointer type, add the arrow
+        // The pointers Map already contains the correct mapping, so we trust it
+        if (varEntry && targetAddr && (varEntry.type?.includes('*') || varEntry.isVector)) {
+          const arrowData = {
+            from: ptrName,
+            to: targetAddr,
+            isDangling: danglingPointers.has(ptrName),
+            type: varEntry.isNodePointer ? 'node_pointer' : (varEntry.type?.includes('*') ? 'pointer' : 'vector_data_ptr'),
+            dataStructureType: varEntry.dataStructureType || null,
+          };
+          pointerArrows.push(arrowData);
+          console.log('[Simulator Debug] Added pointer arrow:', arrowData);
+        } else {
+          console.log('[Simulator Debug] Skipped pointer arrow:', {
+            ptrName,
+            targetAddr,
+            reason: !varEntry ? 'no varEntry' : !targetAddr ? 'no targetAddr' : 'not a pointer type'
+          });
         }
       } catch (e) {
         console.warn("Error processing pointer:", ptrName, e);
       }
     }
+    
+    console.log('[Simulator Debug] Final pointerArrows:', pointerArrows);
     
     // Add reference arrows
     for (const [refName, targetAddr] of references.entries()) {
@@ -1051,6 +1103,30 @@ function addStep(steps, lineNumber, line, callStack, heap, pointers, references,
         console.warn("Error processing heap node:", addr, nodeError);
       }
     }
+    
+    // #region agent log
+    try {
+      fetch('http://127.0.0.1:7242/ingest/25914bc0-dac6-4278-a034-bc80fa884df5', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'cppSimulator.jsx:1065',
+          message: 'addStep - finalizing memoryState',
+          data: {
+            pointerArrowsCount: pointerArrows.length,
+            pointerArrows: pointerArrows.map(p => ({ from: String(p.from || ''), to: String(p.to || '') })),
+            heapSize: heap?.size || 0
+          },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'F'
+        })
+      }).catch(() => {});
+    } catch (logError) {
+      // Silently ignore logging errors
+    }
+    // #endregion
     
     steps.push({
       lineNumber: lineNumber,

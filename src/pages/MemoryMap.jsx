@@ -371,6 +371,18 @@ ptr = nullptr;`]);
   const [showExportModal, setShowExportModal] = useState(false);
   const [learningSidebarOpen, setLearningSidebarOpen] = useState(false); // Collapsed by default for better view
   const [featuredTab, setFeaturedTab] = useState("memai"); // 'memai', 'leetcode', 'learn'
+  const [showFloatingBar, setShowFloatingBar] = useState(false);
+
+  // Track scroll position to show/hide floating bar
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollY = window.scrollY;
+      setShowFloatingBar(scrollY > 300);
+    };
+    
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   useEffect(() => {
     const savedMode = localStorage.getItem('memorymap-dark-mode');
@@ -442,48 +454,111 @@ ptr = nullptr;`]);
     setMemoryLeaks([]);
     setDanglingPointers([]);
     try {
+      if (!code || !code.trim()) {
+        setError("Please enter some code to parse.");
+        return;
+      }
+      
       console.log(`Parsing ${language} code:`, code);
-      const steps = language === 'cpp' ? parseAndSimulateCpp(code) : parseAndSimulateC(code);
+      
+      let steps = [];
+      try {
+        steps = language === 'cpp' ? parseAndSimulateCpp(code) : parseAndSimulateC(code);
+      } catch (parseError) {
+        console.error("Parse error:", parseError);
+        setError(`Error parsing code: ${parseError.message || 'Invalid syntax'}`);
+        return;
+      }
+      
       console.log("Generated steps:", steps);
       
-      if (steps.length === 0) {
+      if (!steps || steps.length === 0) {
         setError(`No executable code found. Please check your ${language === 'cpp' ? 'C++' : 'C'} syntax.`);
         return;
       }
       
-      setExecutionSteps(steps);
+      // Validate and normalize steps structure to prevent crashes
+      const validSteps = steps
+        .filter(step => step && typeof step === 'object')
+        .map(step => ({
+          ...step,
+          memoryState: {
+            stack: Array.isArray(step.memoryState?.stack) ? step.memoryState.stack : [],
+            heap: Array.isArray(step.memoryState?.heap) ? step.memoryState.heap : [],
+            pointers: Array.isArray(step.memoryState?.pointers) ? step.memoryState.pointers : [],
+            linkedListConnections: Array.isArray(step.memoryState?.linkedListConnections) ? step.memoryState.linkedListConnections : [],
+            treeConnections: Array.isArray(step.memoryState?.treeConnections) ? step.memoryState.treeConnections : [],
+            danglingPointers: Array.isArray(step.memoryState?.danglingPointers) ? step.memoryState.danglingPointers : [],
+            callStack: Array.isArray(step.memoryState?.callStack) ? step.memoryState.callStack : [],
+          },
+          lineNumber: typeof step.lineNumber === 'number' ? step.lineNumber : 0,
+          line: typeof step.line === 'string' ? step.line : '',
+        }));
+      
+      if (validSteps.length === 0) {
+        setError("Generated steps are invalid. Please check your code syntax.");
+        return;
+      }
+      
+      setExecutionSteps(validSteps);
       setCurrentStep(0);
       
       // Auto-open Mem AI panel to show explanations
       setFeaturedTab('memai');
       setLearningSidebarOpen(true);
       
-      // Detect memory leaks and dangling pointers
-      detectMemoryIssues(steps);
+      // Detect memory leaks and dangling pointers (with error handling)
+      try {
+        detectMemoryIssues(steps);
+      } catch (detectError) {
+        console.error("Error detecting memory issues:", detectError);
+        // Continue execution even if detection fails
+      }
       
-      // Generate AI explanations
-      await generateExplanations(steps);
+      // Generate AI explanations (with error handling)
+      try {
+        await generateExplanations(steps);
+      } catch (explanationError) {
+        console.error("Error generating explanations:", explanationError);
+        // Continue execution even if explanations fail
+      }
     } catch (error) {
       console.error("Error parsing code:", error);
-      setError("Error parsing code: " + error.message);
+      setError("Error parsing code: " + (error.message || 'Unknown error occurred'));
     }
   };
 
   const detectMemoryIssues = (steps) => {
-    const lastStep = steps[steps.length - 1];
-    if (lastStep) {
-      // Memory leaks: heap blocks never freed - get their addresses
-      const leakedMemory = lastStep.memoryState.heap
-        .filter(block => !block.isDeleted)
-        .map(block => block.address);
-      if (leakedMemory.length > 0) {
-        setMemoryLeaks(leakedMemory);
+    try {
+      if (!steps || steps.length === 0) {
+        return;
       }
       
-      const danglingPtrs = lastStep.memoryState.danglingPointers || [];
+      const lastStep = steps[steps.length - 1];
+      if (!lastStep || !lastStep.memoryState) {
+        return;
+      }
+      
+      const memoryState = lastStep.memoryState;
+      
+      // Memory leaks: heap blocks never freed - get their addresses
+      if (memoryState.heap && Array.isArray(memoryState.heap)) {
+        const leakedMemory = memoryState.heap
+          .filter(block => block && !block.isDeleted)
+          .map(block => block.address)
+          .filter(addr => addr !== undefined);
+        if (leakedMemory.length > 0) {
+          setMemoryLeaks(leakedMemory);
+        }
+      }
+      
+      const danglingPtrs = Array.isArray(memoryState.danglingPointers) ? memoryState.danglingPointers : [];
       if (danglingPtrs.length > 0) {
         setDanglingPointers(danglingPtrs);
       }
+    } catch (error) {
+      console.error("Error detecting memory issues:", error);
+      // Don't crash the app, just log the error
     }
   };
 
@@ -819,9 +894,18 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
     setCurrentProblem(null); // Clear LeetCode problem
   };
 
-  const handleLoadLeetCodeProblem = (problemCode, problem) => {
-    setCode(problemCode);
-    setCodeHistory([...codeHistory, problemCode]);
+  const handleLoadLeetCodeProblem = (problemData) => {
+    // Handle both old format (problemCode, problem) and new format ({code, ...problem})
+    const code = typeof problemData === 'string' ? problemData : problemData?.code;
+    const problem = typeof problemData === 'string' ? arguments[1] : problemData;
+    
+    if (!code) {
+      console.warn("No code provided for LeetCode problem");
+      return;
+    }
+    
+    setCode(code);
+    setCodeHistory([...codeHistory, code]);
     setHistoryIndex(codeHistory.length);
     setExecutionSteps([]);
     setCurrentStep(0);
@@ -831,7 +915,7 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
     setDanglingPointers([]);
     setBreakpoints(new Set());
     setWatchList([]);
-    setCurrentProblem(problem);
+    setCurrentProblem(problem || null);
   };
 
   useEffect(() => {
@@ -842,14 +926,25 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
     };
   }, []);
 
-  const currentMemoryState = executionSteps[currentStep]?.memoryState || { stack: [], heap: [], pointers: [] };
+  // Safely extract and normalize memoryState to prevent crashes
+  const rawMemoryState = executionSteps[currentStep]?.memoryState;
+  const currentMemoryState = {
+    stack: Array.isArray(rawMemoryState?.stack) ? rawMemoryState.stack : [],
+    heap: Array.isArray(rawMemoryState?.heap) ? rawMemoryState.heap : [],
+    pointers: Array.isArray(rawMemoryState?.pointers) ? rawMemoryState.pointers : [],
+    linkedListConnections: Array.isArray(rawMemoryState?.linkedListConnections) ? rawMemoryState.linkedListConnections : [],
+    treeConnections: Array.isArray(rawMemoryState?.treeConnections) ? rawMemoryState.treeConnections : [],
+    danglingPointers: Array.isArray(rawMemoryState?.danglingPointers) ? rawMemoryState.danglingPointers : [],
+    callStack: Array.isArray(rawMemoryState?.callStack) ? rawMemoryState.callStack : [],
+  };
+  
   const currentLine = executionSteps[currentStep]?.lineNumber || 0;
   const currentExplanation = explanations[currentStep] || "";
-  const currentDanglingPointers = currentMemoryState.danglingPointers || [];
+  const currentDanglingPointers = currentMemoryState.danglingPointers;
 
   const stackSize = currentMemoryState.stack.length;
-  const heapSize = currentMemoryState.heap.filter(b => !b.isDeleted).length;
-  const deletedHeap = currentMemoryState.heap.filter(b => b.isDeleted).length;
+  const heapSize = currentMemoryState.heap.filter(b => b && !b.isDeleted).length;
+  const deletedHeap = currentMemoryState.heap.filter(b => b && b.isDeleted).length;
 
   const bgClass = isDarkMode ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900' : 'bg-gradient-to-br from-purple-50 via-blue-50 to-cyan-50';
   const headerClass = isDarkMode ? 'bg-gradient-to-r from-gray-800 via-gray-700 to-gray-800' : 'bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-600';
@@ -1184,21 +1279,39 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
         </div>
       )}
 
-      {/* Memory Leak Warning */}
-      {memoryLeaks.length > 0 && currentStep === executionSteps.length - 1 && (
-        <div className="max-w-[1800px] mx-auto px-6 pt-6">
+      {/* Memory Leak Warning - Prominent at end */}
+      {memoryLeaks.length > 0 && (
+        <div id="memory-leak-warning" className="max-w-[1800px] mx-auto px-6 pt-6 pb-4 scroll-mt-20">
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-yellow-50 border-2 border-yellow-400 rounded-xl p-4 flex items-start gap-3"
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+            className={`border-4 rounded-2xl p-6 shadow-2xl flex items-start gap-4 ${
+              isDarkMode 
+                ? 'bg-gradient-to-r from-red-900/40 to-orange-900/40 border-red-500' 
+                : 'bg-gradient-to-r from-red-50 to-orange-50 border-red-500'
+            }`}
           >
-            <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <strong className="text-yellow-900">💧 Memory Leak Detected!</strong>
-              <p className="text-yellow-800 mt-1">
-                You have {memoryLeaks.length} heap allocation(s) that were never freed with <code className="bg-yellow-200 px-1 rounded">delete</code>. 
-                Leaked addresses: <code className="bg-yellow-200 px-1 rounded font-mono">{memoryLeaks.join(', ')}</code>. 
-                This causes memory leaks in real programs! Always match every <code className="bg-yellow-200 px-1 rounded">new</code> with a <code className="bg-yellow-200 px-1 rounded">delete</code>.
+            <div className={`p-3 rounded-full ${isDarkMode ? 'bg-red-500/30' : 'bg-red-100'}`}>
+              <AlertTriangle className={`w-8 h-8 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
+            </div>
+            <div className="flex-1">
+              <h3 className={`text-2xl font-bold mb-2 ${isDarkMode ? 'text-red-300' : 'text-red-900'}`}>
+                ⚠️ Memory Leak Detected!
+              </h3>
+              <p className={`text-base mb-3 ${isDarkMode ? 'text-red-200' : 'text-red-800'}`}>
+                You have <strong>{memoryLeaks.length}</strong> heap allocation(s) that were never freed with <code className={`px-2 py-1 rounded font-mono ${isDarkMode ? 'bg-red-900/50 text-red-200' : 'bg-red-200 text-red-900'}`}>delete</code>.
+              </p>
+              <div className={`p-3 rounded-lg mb-3 ${isDarkMode ? 'bg-red-900/30' : 'bg-red-100'}`}>
+                <p className={`text-sm font-semibold mb-1 ${isDarkMode ? 'text-red-300' : 'text-red-900'}`}>
+                  Leaked Memory Addresses:
+                </p>
+                <code className={`px-2 py-1 rounded font-mono text-sm ${isDarkMode ? 'bg-gray-800 text-red-300' : 'bg-white text-red-900'}`}>
+                  {memoryLeaks.join(', ')}
+                </code>
+              </div>
+              <p className={`text-sm ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
+                <strong>Fix:</strong> Always match every <code className={`px-1 py-0.5 rounded ${isDarkMode ? 'bg-red-900/50' : 'bg-red-200'}`}>new</code> with a corresponding <code className={`px-1 py-0.5 rounded ${isDarkMode ? 'bg-red-900/50' : 'bg-red-200'}`}>delete</code>. Memory leaks cause programs to consume more and more memory over time!
               </p>
             </div>
           </motion.div>
@@ -1536,6 +1649,132 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
           </motion.div>
         )}
       </div>
+
+      {/* Floating Control Bar - appears when scrolling */}
+      <AnimatePresence>
+        {showFloatingBar && (
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50"
+          >
+            <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl border backdrop-blur-xl ${
+              isDarkMode 
+                ? 'bg-gray-900/95 border-gray-700' 
+                : 'bg-white/95 border-purple-200'
+            }`}>
+              {/* Step counter */}
+              <div className={`px-3 py-1.5 rounded-lg font-mono text-sm font-bold ${
+                isDarkMode ? 'bg-purple-900/50 text-purple-300' : 'bg-purple-100 text-purple-700'
+              }`}>
+                {executionSteps.length > 0 
+                  ? `Step ${currentStep + 1}/${executionSteps.length}`
+                  : 'Ready'
+                }
+              </div>
+              
+              {/* Memory leak indicator - clickable */}
+              {memoryLeaks.length > 0 && executionSteps.length > 0 && currentStep === executionSteps.length - 1 && (
+                <button
+                  onClick={() => {
+                    const warningElement = document.getElementById('memory-leak-warning');
+                    if (warningElement) {
+                      warningElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-lg flex items-center gap-2 cursor-pointer transition-all hover:scale-105 ${
+                    isDarkMode 
+                      ? 'bg-red-900/50 text-red-300 border border-red-700 hover:bg-red-900/70 hover:border-red-600' 
+                      : 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200 hover:border-red-400'
+                  }`}
+                  title="Click to view memory leak details"
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  <span className="text-xs font-semibold">{memoryLeaks.length} Leak{memoryLeaks.length > 1 ? 's' : ''}</span>
+                </button>
+              )}
+
+              {/* Control buttons */}
+              <div className="flex items-center gap-1">
+                <Button
+                  onClick={handleRun}
+                  disabled={isRunning || !code.trim()}
+                  size="sm"
+                  className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-gray-900 font-semibold"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span className="ml-1 hidden sm:inline">Parse</span>
+                </Button>
+                
+                <Button
+                  onClick={handleAutoRun}
+                  disabled={executionSteps.length === 0 || currentStep >= executionSteps.length - 1}
+                  size="sm"
+                  className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white"
+                >
+                  {isRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  <span className="ml-1 hidden sm:inline">{isRunning ? 'Pause' : 'Run'}</span>
+                </Button>
+                
+                <Button
+                  onClick={handleStep}
+                  disabled={executionSteps.length === 0 || currentStep >= executionSteps.length - 1}
+                  size="sm"
+                  className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white"
+                >
+                  <SkipForward className="w-4 h-4" />
+                  <span className="ml-1 hidden sm:inline">Step</span>
+                </Button>
+                
+                <Button
+                  onClick={handleReset}
+                  size="sm"
+                  variant="outline"
+                  className={isDarkMode ? 'border-gray-600 text-gray-300' : ''}
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </Button>
+              </div>
+
+              {/* Speed slider */}
+              <div className="hidden md:flex items-center gap-2">
+                <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Speed</span>
+                <Slider
+                  value={[runSpeed]}
+                  onValueChange={(value) => setRunSpeed(value[0])}
+                  min={300}
+                  max={3000}
+                  step={300}
+                  className="w-20"
+                />
+              </div>
+
+              {/* Mem AI quick button */}
+              <Button
+                onClick={() => {
+                  setFeaturedTab('memai');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                size="sm"
+                className="bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 text-white"
+              >
+                🧠 Mem AI
+              </Button>
+
+              {/* Scroll to top */}
+              <Button
+                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                size="sm"
+                variant="ghost"
+                className={isDarkMode ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-900'}
+              >
+                ↑
+              </Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,467 +1,517 @@
 /**
- * LeetCode Problems Library
- * Curated problems with visualization-friendly implementations
+ * Curated LeetCode problems focused on memory management and data structures
+ * Each problem includes starter code, hints, and memory concepts to learn
  */
 
 export const LEETCODE_PROBLEMS = {
-  // Easy - Linked Lists
-  reverseList: {
+  // ============ LINKED LIST PROBLEMS ============
+  reverseLinkedList: {
     id: 206,
     title: "Reverse Linked List",
     difficulty: "Easy",
-    category: "Linked List",
     pattern: "Two Pointers",
-    timeComplexity: "O(n)",
-    spaceComplexity: "O(1)",
-    description: "Reverse a singly linked list. Watch how the pointers change direction!",
-    hints: [
-      "Track the previous node as you traverse",
-      "Save the next node before changing pointers",
-      "The previous node becomes the new head"
-    ],
-    code: `struct ListNode {
-  int val;
-  ListNode* next;
+    memoryConceptsTaught: ["Pointer manipulation", "In-place modification", "Linked list traversal"],
+    description: "Reverse a singly linked list. Watch how pointers change direction!",
+    starterCode: `struct ListNode {
+    int val;
+    ListNode* next;
+    ListNode(int x) : val(x), next(nullptr) {}
 };
 
-ListNode* head = new ListNode;
-head->val = 1;
-ListNode* node2 = new ListNode;
-node2->val = 2;
-head->next = node2;
-ListNode* node3 = new ListNode;
-node3->val = 3;
-node2->next = node3;
-node3->next = nullptr;
+// Create a simple linked list: 1 -> 2 -> 3
+ListNode* head = new ListNode(1);
+head->next = new ListNode(2);
+head->next->next = new ListNode(3);
 
 // Reverse the list
 ListNode* prev = nullptr;
 ListNode* curr = head;
-ListNode* next = nullptr;
 
-next = curr->next;
-curr->next = prev;
-prev = curr;
-curr = next;
+while (curr != nullptr) {
+    ListNode* nextTemp = curr->next;
+    curr->next = prev;
+    prev = curr;
+    curr = nextTemp;
+}
 
-next = curr->next;
-curr->next = prev;
-prev = curr;
-curr = next;
-
-next = curr->next;
-curr->next = prev;
-prev = curr;
-curr = next;
-
-head = prev;`
+// prev is now the new head`,
+    hints: [
+      "Use three pointers: prev, curr, and next",
+      "Save the next node before changing the pointer",
+      "The previous node becomes the new next"
+    ],
+    timeComplexity: "O(n)",
+    spaceComplexity: "O(1)"
   },
 
-  mergeTwoLists: {
+  mergeTwoSortedLists: {
     id: 21,
     title: "Merge Two Sorted Lists",
     difficulty: "Easy",
-    category: "Linked List",
     pattern: "Two Pointers",
-    timeComplexity: "O(n + m)",
-    spaceComplexity: "O(1)",
+    memoryConceptsTaught: ["Dummy node pattern", "Pointer comparison", "Building new lists"],
     description: "Merge two sorted linked lists into one sorted list.",
-    hints: [
-      "Use a dummy node to simplify the logic",
-      "Compare nodes and link the smaller one",
-      "Don't forget to attach the remaining nodes"
-    ],
-    code: `struct ListNode {
-  int val;
-  ListNode* next;
+    starterCode: `struct ListNode {
+    int val;
+    ListNode* next;
+    ListNode(int x) : val(x), next(nullptr) {}
 };
 
 // List 1: 1 -> 3 -> 5
-ListNode* l1 = new ListNode;
-l1->val = 1;
-ListNode* l1b = new ListNode;
-l1b->val = 3;
-l1->next = l1b;
-ListNode* l1c = new ListNode;
-l1c->val = 5;
-l1b->next = l1c;
-l1c->next = nullptr;
+ListNode* l1 = new ListNode(1);
+l1->next = new ListNode(3);
+l1->next->next = new ListNode(5);
 
 // List 2: 2 -> 4 -> 6
-ListNode* l2 = new ListNode;
-l2->val = 2;
-ListNode* l2b = new ListNode;
-l2b->val = 4;
-l2->next = l2b;
-ListNode* l2c = new ListNode;
-l2c->val = 6;
-l2b->next = l2c;
-l2c->next = nullptr;
+ListNode* l2 = new ListNode(2);
+l2->next = new ListNode(4);
+l2->next->next = new ListNode(6);
 
 // Merge using dummy head
-ListNode* dummy = new ListNode;
-dummy->val = 0;
-ListNode* tail = dummy;
+ListNode dummy(0);
+ListNode* tail = &dummy;
 
-tail->next = l1;
-tail = l1;
-l1 = l1->next;
+while (l1 && l2) {
+    if (l1->val <= l2->val) {
+        tail->next = l1;
+        l1 = l1->next;
+    } else {
+        tail->next = l2;
+        l2 = l2->next;
+    }
+    tail = tail->next;
+}
 
-tail->next = l2;
-tail = l2;
-l2 = l2->next;`
-  },
-
-  // Medium - Two Pointers
-  twoSum: {
-    id: 1,
-    title: "Two Sum",
-    difficulty: "Easy",
-    category: "Array",
-    pattern: "Hash Map",
-    timeComplexity: "O(n)",
-    spaceComplexity: "O(n)",
-    description: "Find two numbers that add up to target. Classic interview problem!",
+tail->next = l1 ? l1 : l2;
+ListNode* merged = dummy.next;`,
     hints: [
-      "Use a hash map to store seen numbers",
-      "For each number, check if (target - num) exists",
-      "Return indices, not values"
+      "Use a dummy node to simplify edge cases",
+      "Compare values and attach the smaller one",
+      "Don't forget the remaining nodes at the end"
     ],
-    code: `int arr[4] = {2, 7, 11, 15};
-int target = 9;
-int result1 = -1;
-int result2 = -1;
-
-// Brute force approach (visualize the search)
-int i = 0;
-int j = 1;
-int sum = arr[i] + arr[j];
-
-// Found! arr[0] + arr[1] = 9
-result1 = i;
-result2 = j;`
+    timeComplexity: "O(n + m)",
+    spaceComplexity: "O(1)"
   },
 
-  // Binary Tree
-  maxDepth: {
-    id: 104,
-    title: "Maximum Depth of Binary Tree",
-    difficulty: "Easy",
-    category: "Binary Tree",
-    pattern: "DFS",
-    timeComplexity: "O(n)",
-    spaceComplexity: "O(h)",
-    description: "Find the maximum depth of a binary tree using recursion.",
-    hints: [
-      "Base case: null node has depth 0",
-      "Recursive case: 1 + max(left, right)",
-      "Watch the call stack grow and shrink"
-    ],
-    code: `struct TreeNode {
-  int val;
-  TreeNode* left;
-  TreeNode* right;
-};
-
-TreeNode* root = new TreeNode;
-root->val = 3;
-
-TreeNode* left = new TreeNode;
-left->val = 9;
-root->left = left;
-left->left = nullptr;
-left->right = nullptr;
-
-TreeNode* right = new TreeNode;
-right->val = 20;
-root->right = right;
-
-TreeNode* rightLeft = new TreeNode;
-rightLeft->val = 15;
-right->left = rightLeft;
-rightLeft->left = nullptr;
-rightLeft->right = nullptr;
-
-TreeNode* rightRight = new TreeNode;
-rightRight->val = 7;
-right->right = rightRight;
-rightRight->left = nullptr;
-rightRight->right = nullptr;`
-  },
-
-  // Sliding Window
-  maxSubarray: {
-    id: 53,
-    title: "Maximum Subarray",
-    difficulty: "Medium",
-    category: "Array",
-    pattern: "Kadane's Algorithm",
-    timeComplexity: "O(n)",
-    spaceComplexity: "O(1)",
-    description: "Find the contiguous subarray with the largest sum.",
-    hints: [
-      "Keep track of current sum and max sum",
-      "Reset current sum if it becomes negative",
-      "Classic dynamic programming pattern"
-    ],
-    code: `int arr[9] = {-2, 1, -3, 4, -1, 2, 1, -5, 4};
-int maxSum = arr[0];
-int currentSum = arr[0];
-
-// Kadane's algorithm visualization
-currentSum = arr[1];
-maxSum = 1;
-
-currentSum = currentSum + arr[2];
-currentSum = arr[3];
-maxSum = 4;
-
-currentSum = currentSum + arr[4];
-currentSum = currentSum + arr[5];
-currentSum = currentSum + arr[6];
-maxSum = 6;`
-  },
-
-  // Fast & Slow Pointers
-  hasCycle: {
+  linkedListCycle: {
     id: 141,
     title: "Linked List Cycle",
     difficulty: "Easy",
-    category: "Linked List",
     pattern: "Fast & Slow Pointers",
-    timeComplexity: "O(n)",
-    spaceComplexity: "O(1)",
-    description: "Detect if a linked list has a cycle using Floyd's algorithm.",
-    hints: [
-      "Use two pointers: slow moves 1, fast moves 2",
-      "If they meet, there's a cycle",
-      "If fast reaches null, no cycle"
-    ],
-    code: `struct ListNode {
-  int val;
-  ListNode* next;
+    memoryConceptsTaught: ["Cycle detection", "Floyd's algorithm", "Pointer speed difference"],
+    description: "Detect if a linked list has a cycle using the tortoise and hare algorithm.",
+    starterCode: `struct ListNode {
+    int val;
+    ListNode* next;
+    ListNode(int x) : val(x), next(nullptr) {}
 };
 
-ListNode* head = new ListNode;
-head->val = 3;
-
-ListNode* node2 = new ListNode;
-node2->val = 2;
-head->next = node2;
-
-ListNode* node3 = new ListNode;
-node3->val = 0;
-node2->next = node3;
-
-ListNode* node4 = new ListNode;
-node4->val = -4;
-node3->next = node4;
-
-// Create cycle: -4 points back to 2
-node4->next = node2;
+// Create list with cycle: 1 -> 2 -> 3 -> 4 -> back to 2
+ListNode* head = new ListNode(1);
+head->next = new ListNode(2);
+head->next->next = new ListNode(3);
+head->next->next->next = new ListNode(4);
+head->next->next->next->next = head->next; // Creates cycle!
 
 // Floyd's cycle detection
 ListNode* slow = head;
 ListNode* fast = head;
+bool hasCycle = false;
 
-slow = slow->next;
-fast = fast->next->next;
-
-slow = slow->next;
-fast = fast->next->next;`
-  },
-
-  // Stack
-  validParentheses: {
-    id: 20,
-    title: "Valid Parentheses",
-    difficulty: "Easy",
-    category: "Stack",
-    pattern: "Stack",
+while (fast != nullptr && fast->next != nullptr) {
+    slow = slow->next;
+    fast = fast->next->next;
+    
+    if (slow == fast) {
+        hasCycle = true;
+        break;
+    }
+}`,
+    hints: [
+      "Fast pointer moves 2 steps, slow moves 1 step",
+      "If there's a cycle, they will eventually meet",
+      "If fast reaches null, there's no cycle"
+    ],
     timeComplexity: "O(n)",
-    spaceComplexity: "O(n)",
-    description: "Check if parentheses are balanced using a stack.",
-    hints: [
-      "Push opening brackets onto stack",
-      "Pop and compare for closing brackets",
-      "Stack should be empty at the end"
-    ],
-    code: `char str[7] = {'(', '[', '{', '}', ']', ')', '\\0'};
-int stackTop = -1;
-char stack[6];
-
-// Push (
-stackTop = 0;
-stack[stackTop] = '(';
-
-// Push [
-stackTop = 1;
-stack[stackTop] = '[';
-
-// Push {
-stackTop = 2;
-stack[stackTop] = '{';
-
-// Pop for }
-char top = stack[stackTop];
-stackTop = 1;
-
-// Pop for ]
-top = stack[stackTop];
-stackTop = 0;
-
-// Pop for )
-top = stack[stackTop];
-stackTop = -1;
-
-bool isValid = true;`
+    spaceComplexity: "O(1)"
   },
 
-  // Binary Search
-  binarySearch: {
-    id: 704,
-    title: "Binary Search",
-    difficulty: "Easy",
-    category: "Array",
-    pattern: "Binary Search",
-    timeComplexity: "O(log n)",
-    spaceComplexity: "O(1)",
-    description: "Find target in sorted array using binary search.",
+  removeNthFromEnd: {
+    id: 19,
+    title: "Remove Nth Node From End",
+    difficulty: "Medium",
+    pattern: "Two Pointers",
+    memoryConceptsTaught: ["Gap maintenance", "Single pass traversal", "Node deletion"],
+    description: "Remove the nth node from the end of a linked list in one pass.",
+    starterCode: `struct ListNode {
+    int val;
+    ListNode* next;
+    ListNode(int x) : val(x), next(nullptr) {}
+};
+
+// Create list: 1 -> 2 -> 3 -> 4 -> 5
+ListNode* head = new ListNode(1);
+head->next = new ListNode(2);
+head->next->next = new ListNode(3);
+head->next->next->next = new ListNode(4);
+head->next->next->next->next = new ListNode(5);
+
+int n = 2; // Remove 2nd from end (node with value 4)
+
+// Use dummy to handle edge case of removing head
+ListNode dummy(0);
+dummy.next = head;
+ListNode* first = &dummy;
+ListNode* second = &dummy;
+
+// Move first n+1 steps ahead
+for (int i = 0; i <= n; i++) {
+    first = first->next;
+}
+
+// Move both until first reaches end
+while (first != nullptr) {
+    first = first->next;
+    second = second->next;
+}
+
+// Delete the node
+ListNode* toDelete = second->next;
+second->next = second->next->next;
+delete toDelete;
+
+head = dummy.next;`,
     hints: [
-      "Use left and right pointers",
-      "Calculate mid = left + (right - left) / 2",
-      "Halve the search space each iteration"
+      "Create a gap of n nodes between two pointers",
+      "When the first pointer reaches the end, second is at the right spot",
+      "Use dummy node to handle removing the head"
     ],
-    code: `int arr[6] = {-1, 0, 3, 5, 9, 12};
+    timeComplexity: "O(n)",
+    spaceComplexity: "O(1)"
+  },
+
+  // ============ BINARY TREE PROBLEMS ============
+  invertBinaryTree: {
+    id: 226,
+    title: "Invert Binary Tree",
+    difficulty: "Easy",
+    pattern: "Tree Recursion",
+    memoryConceptsTaught: ["Recursive tree traversal", "Pointer swapping", "Tree structure"],
+    description: "Invert a binary tree by swapping left and right children at every node.",
+    starterCode: `struct TreeNode {
+    int val;
+    TreeNode* left;
+    TreeNode* right;
+    TreeNode(int x) : val(x), left(nullptr), right(nullptr) {}
+};
+
+// Create tree:     4
+//                /   \\
+//               2     7
+//              / \\   / \\
+//             1   3 6   9
+
+TreeNode* root = new TreeNode(4);
+root->left = new TreeNode(2);
+root->right = new TreeNode(7);
+root->left->left = new TreeNode(1);
+root->left->right = new TreeNode(3);
+root->right->left = new TreeNode(6);
+root->right->right = new TreeNode(9);
+
+// Invert the tree (swap children at each node)
+TreeNode* temp = root->left;
+root->left = root->right;
+root->right = temp;
+
+// After full inversion:
+//        4
+//      /   \\
+//     7     2
+//    / \\   / \\
+//   9   6 3   1`,
+    hints: [
+      "Swap left and right children at each node",
+      "Recursively invert left and right subtrees",
+      "Base case: null node returns null"
+    ],
+    timeComplexity: "O(n)",
+    spaceComplexity: "O(h) - height of tree"
+  },
+
+  maximumDepth: {
+    id: 104,
+    title: "Maximum Depth of Binary Tree",
+    difficulty: "Easy",
+    pattern: "Tree Recursion",
+    memoryConceptsTaught: ["Recursive depth calculation", "Call stack visualization", "Tree height"],
+    description: "Find the maximum depth (height) of a binary tree.",
+    starterCode: `struct TreeNode {
+    int val;
+    TreeNode* left;
+    TreeNode* right;
+    TreeNode(int x) : val(x), left(nullptr), right(nullptr) {}
+};
+
+// Create tree with depth 3:
+//        3
+//       / \\
+//      9  20
+//        /  \\
+//       15   7
+
+TreeNode* root = new TreeNode(3);
+root->left = new TreeNode(9);
+root->right = new TreeNode(20);
+root->right->left = new TreeNode(15);
+root->right->right = new TreeNode(7);
+
+// Calculate depth at each node
+int leftDepth = 1;  // Depth of left subtree
+int rightDepth = 2; // Depth of right subtree
+int maxDepth = 1 + 2; // 1 + max(left, right) = 3`,
+    hints: [
+      "Depth = 1 + max(leftDepth, rightDepth)",
+      "Base case: null node has depth 0",
+      "Watch the call stack grow as we recurse"
+    ],
+    timeComplexity: "O(n)",
+    spaceComplexity: "O(h)"
+  },
+
+  validateBST: {
+    id: 98,
+    title: "Validate Binary Search Tree",
+    difficulty: "Medium",
+    pattern: "Tree Recursion",
+    memoryConceptsTaught: ["BST property", "Range validation", "Recursive bounds"],
+    description: "Check if a binary tree is a valid Binary Search Tree.",
+    starterCode: `struct TreeNode {
+    int val;
+    TreeNode* left;
+    TreeNode* right;
+    TreeNode(int x) : val(x), left(nullptr), right(nullptr) {}
+};
+
+// Valid BST:    5
+//              / \\
+//             3   7
+//            / \\   \\
+//           1   4   9
+
+TreeNode* root = new TreeNode(5);
+root->left = new TreeNode(3);
+root->right = new TreeNode(7);
+root->left->left = new TreeNode(1);
+root->left->right = new TreeNode(4);
+root->right->right = new TreeNode(9);
+
+// Check BST property at each node
+// Left child (3) < Root (5) < Right child (7)
+bool leftValid = root->left->val < root->val;
+bool rightValid = root->right->val > root->val;
+bool isValid = leftValid && rightValid;`,
+    hints: [
+      "Each node has a valid range (min, max)",
+      "Left subtree values must be less than root",
+      "Right subtree values must be greater than root"
+    ],
+    timeComplexity: "O(n)",
+    spaceComplexity: "O(h)"
+  },
+
+  // ============ MEMORY MANAGEMENT PROBLEMS ============
+  memoryLeak: {
+    id: 0,
+    title: "Detect Memory Leak",
+    difficulty: "Medium",
+    pattern: "Memory Management",
+    memoryConceptsTaught: ["Memory leaks", "Proper deallocation", "RAII pattern"],
+    description: "Learn to identify and fix memory leaks in C++ code.",
+    starterCode: `// BUGGY CODE - Has memory leak!
+int* ptr1 = new int(10);
+int* ptr2 = new int(20);
+int* ptr3 = new int(30);
+
+// Reassigning ptr2 without deleting - MEMORY LEAK!
+ptr2 = ptr1;
+
+// Now the memory at original ptr2 is lost forever!
+// We can't access it or delete it.
+
+// Proper cleanup (but we already leaked one!)
+delete ptr1;
+// delete ptr2 would crash - same memory as ptr1!
+delete ptr3;
+
+// FIXED VERSION:
+int* a = new int(10);
+int* b = new int(20);
+int* c = new int(30);
+
+// Delete before reassigning!
+delete b;
+b = a;
+
+delete a;
+// Don't delete b - it's the same as a now
+delete c;`,
+    hints: [
+      "Always delete before reassigning a pointer",
+      "Track all allocations and ensure matching deletes",
+      "Consider using smart pointers (unique_ptr, shared_ptr)"
+    ],
+    timeComplexity: "N/A",
+    spaceComplexity: "N/A"
+  },
+
+  danglingPointer: {
+    id: 0,
+    title: "Dangling Pointer Detection",
+    difficulty: "Medium",
+    pattern: "Memory Management",
+    memoryConceptsTaught: ["Dangling pointers", "Use-after-free", "Null safety"],
+    description: "Understand and avoid dangling pointer bugs.",
+    starterCode: `// DANGEROUS CODE - Dangling pointer!
+int* ptr = new int(42);
+int* alias = ptr;  // Both point to same memory
+
+delete ptr;  // Memory freed!
+// ptr and alias are now DANGLING POINTERS
+
+// ptr = nullptr;  // Good practice - but alias still dangles!
+
+// *alias = 10;  // CRASH! Use-after-free bug!
+
+// SAFE VERSION:
+int* safe = new int(42);
+int* copy = safe;
+
+delete safe;
+safe = nullptr;
+copy = nullptr;  // Must null ALL aliases!
+
+// Now both are safe to check
+if (safe != nullptr) {
+    *safe = 10;  // Won't execute
+}`,
+    hints: [
+      "After delete, set pointer to nullptr immediately",
+      "Be aware of all aliases to the same memory",
+      "Check for nullptr before dereferencing"
+    ],
+    timeComplexity: "N/A",
+    spaceComplexity: "N/A"
+  },
+
+  twoSum: {
+    id: 1,
+    title: "Two Sum",
+    difficulty: "Easy",
+    pattern: "Hash Map",
+    memoryConceptsTaught: ["Array indexing", "Stack arrays", "Value lookup"],
+    description: "Find two numbers that add up to target. Classic first LeetCode problem!",
+    starterCode: `// Array on stack
+int nums[4] = {2, 7, 11, 15};
 int target = 9;
-int left = 0;
-int right = 5;
-int result = -1;
 
-// First iteration
-int mid = left + (right - left) / 2;
-// mid = 2, arr[2] = 3 < target
+// Brute force approach - check all pairs
+int result1 = -1;
+int result2 = -1;
 
-left = mid + 1;
-// left = 3
+for (int i = 0; i < 4; i++) {
+    for (int j = i + 1; j < 4; j++) {
+        if (nums[i] + nums[j] == target) {
+            result1 = i;
+            result2 = j;
+        }
+    }
+}
 
-// Second iteration
-mid = left + (right - left) / 2;
-// mid = 4, arr[4] = 9 == target
-
-result = mid;`
-  },
-
-  // Dynamic Programming
-  climbStairs: {
-    id: 70,
-    title: "Climbing Stairs",
-    difficulty: "Easy",
-    category: "Dynamic Programming",
-    pattern: "DP - Fibonacci",
-    timeComplexity: "O(n)",
-    spaceComplexity: "O(1)",
-    description: "Count ways to climb n stairs (1 or 2 steps at a time).",
+// Result: indices 0 and 1 (values 2 + 7 = 9)`,
     hints: [
-      "dp[i] = dp[i-1] + dp[i-2]",
-      "Same as Fibonacci sequence",
-      "Can optimize space to O(1)"
+      "Brute force: check all pairs O(n^2)",
+      "Optimal: use hash map for O(n)",
+      "Store complement = target - current"
     ],
-    code: `int n = 5;
-int prev2 = 1;
-int prev1 = 1;
-int current = 0;
+    timeComplexity: "O(n^2) brute force, O(n) with hash map",
+    spaceComplexity: "O(1) brute force, O(n) with hash map"
+  },
 
-// n = 2
-current = prev1 + prev2;
-prev2 = prev1;
-prev1 = current;
+  addTwoNumbers: {
+    id: 2,
+    title: "Add Two Numbers",
+    difficulty: "Medium",
+    pattern: "Linked List",
+    memoryConceptsTaught: ["Building linked lists", "Carry propagation", "Node creation"],
+    description: "Add two numbers represented as linked lists (digits in reverse order).",
+    starterCode: `struct ListNode {
+    int val;
+    ListNode* next;
+    ListNode(int x) : val(x), next(nullptr) {}
+};
 
-// n = 3
-current = prev1 + prev2;
-prev2 = prev1;
-prev1 = current;
+// Number 342 as: 2 -> 4 -> 3
+ListNode* l1 = new ListNode(2);
+l1->next = new ListNode(4);
+l1->next->next = new ListNode(3);
 
-// n = 4
-current = prev1 + prev2;
-prev2 = prev1;
-prev1 = current;
+// Number 465 as: 5 -> 6 -> 4
+ListNode* l2 = new ListNode(5);
+l2->next = new ListNode(6);
+l2->next->next = new ListNode(4);
 
-// n = 5
-current = prev1 + prev2;
-int result = current;`
+// Add: 342 + 465 = 807
+// Result: 7 -> 0 -> 8
+ListNode dummy(0);
+ListNode* curr = &dummy;
+int carry = 0;
+
+while (l1 || l2 || carry) {
+    int sum = carry;
+    if (l1) { sum += l1->val; l1 = l1->next; }
+    if (l2) { sum += l2->val; l2 = l2->next; }
+    
+    carry = sum / 10;
+    curr->next = new ListNode(sum % 10);
+    curr = curr->next;
+}
+
+ListNode* result = dummy.next;`,
+    hints: [
+      "Process digits from least significant (head)",
+      "Handle carry for sums >= 10",
+      "Don't forget final carry!"
+    ],
+    timeComplexity: "O(max(n, m))",
+    spaceComplexity: "O(max(n, m))"
   }
 };
 
-export const PATTERN_DESCRIPTIONS = {
-  "Two Pointers": {
-    icon: "👆👆",
-    description: "Use two pointers to traverse data structure efficiently",
-    useCases: ["Linked list operations", "Array problems", "Palindrome checks"]
-  },
-  "Fast & Slow Pointers": {
-    icon: "🐢🐇",
-    description: "Floyd's algorithm - slow moves 1, fast moves 2",
-    useCases: ["Cycle detection", "Finding middle element", "Finding intersection"]
-  },
-  "Sliding Window": {
-    icon: "🪟",
-    description: "Maintain a window of elements as you traverse",
-    useCases: ["Subarray problems", "Substring problems", "Fixed-size windows"]
-  },
-  "Binary Search": {
-    icon: "🔍",
-    description: "Divide and conquer on sorted data",
-    useCases: ["Search in sorted array", "Finding boundaries", "Optimization problems"]
-  },
-  "DFS": {
-    icon: "🌲",
-    description: "Depth-First Search - go deep before going wide",
-    useCases: ["Tree traversal", "Graph traversal", "Backtracking"]
-  },
-  "BFS": {
-    icon: "🌊",
-    description: "Breadth-First Search - explore level by level",
-    useCases: ["Shortest path", "Level-order traversal", "Graph problems"]
-  },
-  "Hash Map": {
-    icon: "🗺️",
-    description: "O(1) lookup for fast existence/value checks",
-    useCases: ["Two Sum variants", "Counting", "Caching"]
-  },
-  "Stack": {
-    icon: "📚",
-    description: "LIFO - Last In, First Out",
-    useCases: ["Parentheses matching", "Monotonic problems", "Undo operations"]
-  },
-  "DP - Fibonacci": {
-    icon: "🔢",
-    description: "Classic DP pattern with overlapping subproblems",
-    useCases: ["Climbing stairs", "House robber", "Counting paths"]
-  },
-  "Kadane's Algorithm": {
-    icon: "📈",
-    description: "Find maximum subarray sum in O(n)",
-    useCases: ["Maximum subarray", "Stock problems", "Contiguous sums"]
-  }
+// Problem categories for filtering
+export const PROBLEM_CATEGORIES = {
+  linkedList: ["reverseLinkedList", "mergeTwoSortedLists", "linkedListCycle", "removeNthFromEnd", "addTwoNumbers"],
+  binaryTree: ["invertBinaryTree", "maximumDepth", "validateBST"],
+  memoryManagement: ["memoryLeak", "danglingPointer"],
+  arrays: ["twoSum"]
 };
 
+// Difficulty colors
 export const DIFFICULTY_COLORS = {
-  "Easy": "from-green-400 to-emerald-500",
-  "Medium": "from-yellow-400 to-orange-500",
-  "Hard": "from-red-400 to-rose-500"
+  Easy: { bg: "bg-green-100 dark:bg-green-900/30", text: "text-green-700 dark:text-green-400", border: "border-green-300 dark:border-green-700" },
+  Medium: { bg: "bg-yellow-100 dark:bg-yellow-900/30", text: "text-yellow-700 dark:text-yellow-400", border: "border-yellow-300 dark:border-yellow-700" },
+  Hard: { bg: "bg-red-100 dark:bg-red-900/30", text: "text-red-700 dark:text-red-400", border: "border-red-300 dark:border-red-700" }
 };
 
-export const CATEGORY_ICONS = {
-  "Linked List": "🔗",
-  "Binary Tree": "🌳",
-  "Array": "📊",
-  "Stack": "📚",
-  "Queue": "🚶",
-  "Hash Map": "🗺️",
-  "Dynamic Programming": "🧩",
-  "Graph": "🕸️",
-  "String": "📝"
-};
+// Get all problems as array
+export const getAllProblems = () => Object.entries(LEETCODE_PROBLEMS).map(([key, problem]) => ({
+  key,
+  ...problem
+}));
 
+// Get problems by category
+export const getProblemsByCategory = (category) => {
+  const keys = PROBLEM_CATEGORIES[category] || [];
+  return keys.map(key => ({ key, ...LEETCODE_PROBLEMS[key] }));
+};
 
