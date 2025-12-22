@@ -28,6 +28,7 @@ import LeetCodePanel from "../components/memorymap/LeetCodePanel";
 import ExportModal from "../components/memorymap/ExportModal";
 import ComplexityBadge from "../components/memorymap/ComplexityBadge";
 import LearningSidebar from "../components/memorymap/LearningSidebar";
+import TutorialOverlay from "../components/memorymap/TutorialOverlay";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { GraduationCap } from "lucide-react";
 
@@ -372,6 +373,38 @@ ptr = nullptr;`]);
   const [learningSidebarOpen, setLearningSidebarOpen] = useState(false); // Collapsed by default for better view
   const [featuredTab, setFeaturedTab] = useState("memai"); // 'memai', 'leetcode', 'learn'
   const [showFloatingBar, setShowFloatingBar] = useState(false);
+  
+  // Tutorial state for first-time users
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [showStepTutorial, setShowStepTutorial] = useState(false);
+  const parseButtonRef = React.useRef(null);
+  const stepButtonRef = React.useRef(null);
+
+  // Show tutorial only after welcome modal is dismissed (for first-time users)
+  useEffect(() => {
+    if (!showWelcome) {
+      const hasSeenTutorial = localStorage.getItem('memorymap-tutorial-completed');
+      if (!hasSeenTutorial) {
+        // Show tutorial after welcome is dismissed and DOM settles
+        const timer = setTimeout(() => {
+          setShowTutorial(true);
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [showWelcome]);
+
+  // Dismiss tutorial and mark as completed
+  const dismissTutorial = () => {
+    setShowTutorial(false);
+    localStorage.setItem('memorymap-tutorial-completed', 'true');
+  };
+
+  // Dismiss step tutorial and mark as completed
+  const dismissStepTutorial = () => {
+    setShowStepTutorial(false);
+    localStorage.setItem('memorymap-step-tutorial-completed', 'true');
+  };
 
   // Track scroll position to show/hide floating bar
   useEffect(() => {
@@ -450,6 +483,11 @@ ptr = nullptr;`]);
   };
 
   const handleRun = async () => {
+    // Dismiss tutorial if showing (first-time user clicked Parse)
+    if (showTutorial) {
+      dismissTutorial();
+    }
+    
     setError(null);
     setMemoryLeaks([]);
     setDanglingPointers([]);
@@ -502,6 +540,12 @@ ptr = nullptr;`]);
       
       setExecutionSteps(validSteps);
       setCurrentStep(0);
+      
+      // Show step tutorial for first-time users after successful parsing
+      const hasSeenStepTutorial = localStorage.getItem('memorymap-step-tutorial-completed');
+      if (!hasSeenStepTutorial) {
+        setTimeout(() => setShowStepTutorial(true), 300);
+      }
       
       // Auto-open Mem AI panel to show explanations
       setFeaturedTab('memai');
@@ -805,6 +849,11 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
   };
 
   const handleStep = () => {
+    // Dismiss step tutorial if showing
+    if (showStepTutorial) {
+      dismissStepTutorial();
+    }
+    
     if (currentStep < executionSteps.length - 1) {
       setCurrentStep(currentStep + 1);
       setIsPaused(false);
@@ -1167,9 +1216,11 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
 
             {/* Execution Controls */}
             <div className="flex items-center gap-1">
-              <Button onClick={handleRun} size="sm" className="h-8 px-3 bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-semibold text-xs" disabled={isRunning || !code.trim()}>
-                <Zap className="w-4 h-4 mr-1" /> Parse
-              </Button>
+              <div ref={parseButtonRef}>
+                <Button onClick={handleRun} size="sm" className="h-8 px-3 bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-semibold text-xs" disabled={isRunning || !code.trim()}>
+                  <Zap className="w-4 h-4 mr-1" /> Parse
+                </Button>
+              </div>
               
               {!isRunning ? (
                 <Button onClick={handleAutoRun} size="sm" className="h-8 px-3 bg-green-500 hover:bg-green-600 text-white text-xs" disabled={executionSteps.length === 0}>
@@ -1181,9 +1232,11 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
                 </Button>
               )}
               
-              <Button onClick={handleStep} size="sm" variant="outline" className="h-8 w-8 p-0 bg-white/90" disabled={isRunning || currentStep >= executionSteps.length - 1} title="Step">
-                <SkipForward className="w-4 h-4" />
-              </Button>
+              <div ref={stepButtonRef}>
+                <Button onClick={handleStep} size="sm" variant="outline" className="h-8 w-8 p-0 bg-white/90" disabled={isRunning || currentStep >= executionSteps.length - 1} title="Step">
+                  <SkipForward className="w-4 h-4" />
+                </Button>
+              </div>
               
               <Button onClick={handleReset} size="sm" variant="outline" className="h-8 w-8 p-0 bg-white/90" disabled={executionSteps.length === 0} title="Reset">
                 <RotateCcw className="w-4 h-4" />
@@ -1775,6 +1828,26 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* First-time user tutorial overlay - Parse button */}
+      {showTutorial && (
+        <TutorialOverlay 
+          targetRef={parseButtonRef}
+          onDismiss={dismissTutorial}
+          isDarkMode={isDarkMode}
+        />
+      )}
+
+      {/* First-time user tutorial overlay - Step button */}
+      {showStepTutorial && (
+        <TutorialOverlay 
+          targetRef={stepButtonRef}
+          onDismiss={dismissStepTutorial}
+          isDarkMode={isDarkMode}
+          title="Now Step Through!"
+          message="Click the Step button to execute your code line by line and watch the memory change!"
+        />
+      )}
     </div>
   );
 }
