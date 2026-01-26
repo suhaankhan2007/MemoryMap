@@ -493,6 +493,7 @@ export function parseAndSimulateCpp(code) {
             
             if (ptrVar.type.includes('*')) {
               let targetAddress = null;
+              let assignmentSucceeded = false;
               
               if (vecVar.isVector && vecVar.vectorData) {
                 // Point to element in vector's heap data
@@ -503,15 +504,18 @@ export function parseAndSimulateCpp(code) {
                   targetAddress = `${heapAddr}+${index * 4}`; // Assuming int = 4 bytes
                   
                   // Store the actual heap address for arrow drawing
+                  // IMPORTANT: Set isUninitialized to false since we're now assigning a value
                   currentFrame.variables.set(ptrName, {
                     ...ptrVar,
                     value: heapAddr,
                     pointsToIndex: index,
                     pointsToVector: vecName,
+                    isUninitialized: false,  // Clear uninitialized flag!
                   });
                   
                   pointers.set(ptrName, heapAddr);
                   uninitializedVars.delete(ptrName);
+                  assignmentSucceeded = true;
                 }
               } else if (vecVar.isArray) {
                 // Static array - point to its address + offset
@@ -521,16 +525,20 @@ export function parseAndSimulateCpp(code) {
                   value: targetAddress,
                   pointsToIndex: index,
                   pointsToArray: vecName,
+                  isUninitialized: false,  // Clear uninitialized flag!
                 });
                 
                 pointers.set(ptrName, targetAddress);
                 uninitializedVars.delete(ptrName);
+                assignmentSucceeded = true;
+              }
+              
+              if (assignmentSucceeded) {
+                addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
+                parsed = true;
               }
             }
           }
-          
-          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
-          parsed = true;
         }
       }
       
