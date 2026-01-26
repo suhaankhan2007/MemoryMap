@@ -315,29 +315,55 @@ export default function MemoryVisualization({ memoryState = {}, isActive, isDark
                   const endX = toRect.left - containerRect.left;
                   const endY = toRect.top - containerRect.top + toRect.height / 2;
 
-                  // If multiple pointers to same target, offset them slightly
+                  // If multiple pointers to same target, spread them out significantly
                   const pointersToSameTarget = pointersByTarget.get(pointer.to) || [];
                   const pointerIndex = pointersToSameTarget.findIndex(p => p && p.from === pointer.from);
-                  const offsetY = pointersToSameTarget.length > 1 
-                    ? (pointerIndex - (pointersToSameTarget.length - 1) / 2) * 12 
+                  const numPointers = pointersToSameTarget.length;
+                  
+                  // Larger vertical spread for multiple pointers (40px apart)
+                  const verticalSpread = 40;
+                  const offsetY = numPointers > 1 
+                    ? (pointerIndex - (numPointers - 1) / 2) * verticalSpread 
+                    : 0;
+                  
+                  // Also spread control point heights so curves don't overlap
+                  const controlSpread = 35;
+                  const controlOffset = numPointers > 1 
+                    ? (pointerIndex - (numPointers - 1) / 2) * controlSpread 
                     : 0;
 
                   // Ensure arrow connects properly - adjust start/end to be at edges
                   const adjustedStartX = startX - 2;
                   const adjustedEndX = endX + 2;
                   const adjustedEndY = endY + offsetY;
+                  const adjustedStartY = startY + offsetY * 0.3; // Slight start offset too
 
                   // Create smooth curved path with control point
                   const midX = (adjustedStartX + adjustedEndX) / 2;
                   const distance = Math.abs(adjustedEndX - adjustedStartX);
-                  const curveOffset = Math.min(distance * 0.25, 50);
-                  const controlY = Math.min(startY, adjustedEndY) - curveOffset;
+                  const baseCurveOffset = Math.min(distance * 0.3, 60);
+                  // Each pointer gets a different curve height
+                  const controlY = Math.min(adjustedStartY, adjustedEndY) - baseCurveOffset - Math.abs(controlOffset);
                   
                   // Use quadratic bezier for smooth curve
-                  const path = `M ${adjustedStartX} ${startY} Q ${midX} ${controlY} ${adjustedEndX} ${adjustedEndY}`;
+                  const path = `M ${adjustedStartX} ${adjustedStartY} Q ${midX} ${controlY} ${adjustedEndX} ${adjustedEndY}`;
 
                   // Determine if pointing to heap or stack
                   const isHeapTarget = Array.isArray(heap) && heap.some(h => h && h.address === pointer.to);
+
+                  // Calculate label position along the curve using quadratic bezier formula
+                  // Each pointer gets a different t value so labels don't overlap
+                  // t=0 is start, t=1 is end, t=0.5 is apex of curve
+                  const tValues = [0.35, 0.5, 0.65, 0.25, 0.75]; // Different positions along curve
+                  const t = numPointers > 1 ? (tValues[pointerIndex % tValues.length]) : 0.5;
+                  
+                  // Quadratic bezier: B(t) = (1-t)²P0 + 2(1-t)tP1 + t²P2
+                  const labelX = Math.pow(1-t, 2) * adjustedStartX + 
+                                 2 * (1-t) * t * midX + 
+                                 Math.pow(t, 2) * adjustedEndX;
+                  const labelY = Math.pow(1-t, 2) * adjustedStartY + 
+                                 2 * (1-t) * t * controlY + 
+                                 Math.pow(t, 2) * adjustedEndY;
 
                   const pathData = {
                     path,
@@ -345,13 +371,18 @@ export default function MemoryVisualization({ memoryState = {}, isActive, isDark
                     to: pointer.to,
                     index,
                     startX: adjustedStartX,
-                    startY,
+                    startY: adjustedStartY,
                     endX: adjustedEndX,
                     endY: adjustedEndY,
                     isHeapTarget,
                     isDangling: pointer.isDangling || false,
                     midX,
                     controlY,
+                    // Label positioned directly on the curve at parameter t
+                    labelX,
+                    labelY: labelY - 18, // Offset slightly above the curve
+                    pointerIndex,
+                    numPointers,
                   };
                   paths.push(pathData);
                 } catch (rectError) {
@@ -589,40 +620,62 @@ export default function MemoryVisualization({ memoryState = {}, isActive, isDark
                     />
                   )}
 
-                  {/* Pointer label */}
-                  <motion.g
-                    initial={{ opacity: 0, scale: 0 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ 
-                      opacity: 0, 
-                      scale: 0,
-                      transition: { duration: 0.4, ease: "easeIn" }
-                    }}
-                    transition={{ delay: arrow.index * 0.2 + 0.5 }}
-                  >
-                    <rect
-                      x={(arrow.startX + arrow.endX) / 2 - 30}
-                      y={arrow.controlY - 15}
-                      width="60"
-                      height="24"
-                      rx="12"
-                      fill={strokeColor}
-                      opacity="0.95"
-                    />
-                    <text
-                      x={(arrow.startX + arrow.endX) / 2}
-                      y={arrow.controlY}
-                      fill="white"
-                      fontSize="13"
-                      fontWeight="bold"
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      className="font-mono"
-                    >
-                      {arrow.from}
-                      {isDangling && " ⚠️"}
-                    </text>
-                  </motion.g>
+                  {/* Pointer label - positioned along the curve to avoid overlaps */}
+                  {(() => {
+                    const labelText = arrow.from + (isDangling ? " ⚠️" : "");
+                    const labelWidth = Math.max(labelText.length * 9 + 16, 40);
+                    const lx = arrow.labelX || arrow.midX;
+                    const ly = arrow.labelY || arrow.controlY;
+                    
+                    return (
+                      <motion.g
+                        initial={{ opacity: 0, scale: 0 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ 
+                          opacity: 0, 
+                          scale: 0,
+                          transition: { duration: 0.4, ease: "easeIn" }
+                        }}
+                        transition={{ delay: arrow.index * 0.2 + 0.5 }}
+                      >
+                        {/* Drop shadow for better visibility */}
+                        <rect
+                          x={lx - labelWidth / 2 - 2}
+                          y={ly - 12}
+                          width={labelWidth + 4}
+                          height="26"
+                          rx="13"
+                          fill="rgba(0,0,0,0.4)"
+                          transform="translate(2, 2)"
+                        />
+                        {/* Main label background */}
+                        <rect
+                          x={lx - labelWidth / 2}
+                          y={ly - 10}
+                          width={labelWidth}
+                          height="22"
+                          rx="11"
+                          fill={strokeColor}
+                          stroke={isDarkMode ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.15)"}
+                          strokeWidth="1.5"
+                        />
+                        {/* Label text */}
+                        <text
+                          x={lx}
+                          y={ly + 2}
+                          fill="white"
+                          fontSize="12"
+                          fontWeight="bold"
+                          textAnchor="middle"
+                          dominantBaseline="middle"
+                          className="font-mono"
+                          style={{ textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
+                        >
+                          {labelText}
+                        </text>
+                      </motion.g>
+                    );
+                  })()}
                 </motion.g>
               );
             })}
@@ -836,6 +889,7 @@ export default function MemoryVisualization({ memoryState = {}, isActive, isDark
                         isLeaked={memoryLeaks.includes(block.address)}
                         isInCycle={isInCycle}
                         linkedListConnections={linkedListConnections}
+                        isRAIIManaged={block.isRAIIManaged || block.ownedByVector}
                       />
                     </div>
                   );

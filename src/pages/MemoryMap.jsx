@@ -151,12 +151,15 @@ delete heap;`
 
   vectors: {
     name: "Vectors",
-    description: "std::vector operations",
-    code: `std::vector<int> vec = {1, 2, 3};
-vec.push_back(4);
-vec.push_back(5);
-vec[0] = 10;
-int x = 42;`
+    description: "std::vector with pointers to elements",
+    code: `std::vector<int> vec;
+int *foo;
+int *bar;
+vec.push_back(1);
+vec.push_back(2);
+vec.push_back(3);
+foo = &vec[0];
+bar = &vec[1];`
   },
 
   memory_leak: {
@@ -586,10 +589,29 @@ ptr = nullptr;`]);
       
       const memoryState = lastStep.memoryState;
       
-      // Memory leaks: heap blocks never freed - get their addresses
+      // MEMORY LEAK DETECTION
+      // 
+      // A leak is NOT "heap memory that still exists"
+      // A leak IS "heap memory with no owning entity at program end"
+      //
+      // Current approach: type-specific flags (isRAIIManaged, ownedByVector)
+      // 
+      // TODO: Future refactor to ownership-graph model where each block has:
+      //   owner: { type: "RAII", id: "vec" } | { type: "raw", ptr: "p" } | null
+      // Then leak detection becomes: block.owner === null && !block.isDeleted
+      // This mirrors Valgrind's reachability model and scales to std::string,
+      // std::map, std::unique_ptr, and custom RAII wrappers.
+      //
       if (memoryState.heap && Array.isArray(memoryState.heap)) {
         const leakedMemory = memoryState.heap
-          .filter(block => block && !block.isDeleted)
+          .filter(block => {
+            if (!block || block.isDeleted) return false;
+            // Exclude RAII-managed memory (vector, string, smart pointers)
+            // These have automatic cleanup via destructors
+            if (block.isRAIIManaged || block.ownedByVector) return false;
+            // What remains: raw `new` allocations without matching `delete`
+            return true;
+          })
           .map(block => block.address)
           .filter(addr => addr !== undefined);
         if (leakedMemory.length > 0) {
@@ -597,6 +619,9 @@ ptr = nullptr;`]);
         }
       }
       
+      // DANGLING POINTER DETECTION
+      // TODO: Also detect pointers invalidated by vector reallocation
+      // Example: int* p = &vec[0]; vec.push_back(4); // p is now dangling
       const danglingPtrs = Array.isArray(memoryState.danglingPointers) ? memoryState.danglingPointers : [];
       if (danglingPtrs.length > 0) {
         setDanglingPointers(danglingPtrs);
@@ -1571,6 +1596,127 @@ Give a 2-3 sentence explanation of what this line does with memory. Be concise b
                   Max 30 lines
                 </span>
               </div>
+              
+              {/* Example Selector */}
+              <div className={`mb-4 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800/50' : 'bg-gradient-to-r from-purple-50 to-blue-50'} border ${isDarkMode ? 'border-gray-700' : 'border-purple-100'}`}>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} whitespace-nowrap`}>
+                    📚 Try an example:
+                  </span>
+                  <Select onValueChange={handleLoadExample}>
+                    <SelectTrigger className={`w-[240px] h-9 text-sm ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-purple-200'}`}>
+                      <SelectValue placeholder="Select an example..." />
+                    </SelectTrigger>
+                    <SelectContent className={`max-h-[400px] ${isDarkMode ? 'bg-gray-800 border-gray-700' : ''}`}>
+                      {language === 'cpp' ? (
+                        <>
+                          {/* C++ Beginner Examples */}
+                          <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-purple-400' : 'text-purple-600'} uppercase tracking-wide`}>
+                            🎯 Beginner
+                          </div>
+                          <SelectItem value="basic" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            Basic Pointers — new/delete
+                          </SelectItem>
+                          <SelectItem value="heap" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            Heap Memory — allocation
+                          </SelectItem>
+                          <SelectItem value="references" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            References — aliasing
+                          </SelectItem>
+                          
+                          {/* C++ Intermediate */}
+                          <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} uppercase tracking-wide mt-2`}>
+                            📈 Intermediate
+                          </div>
+                          <SelectItem value="arrays" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            Arrays — stack & heap
+                          </SelectItem>
+                          <SelectItem value="multiple_pointers" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            Multiple Pointers — sharing
+                          </SelectItem>
+                          <SelectItem value="structs" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            Structs — custom types
+                          </SelectItem>
+                          <SelectItem value="functions" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            Functions — stack frames
+                          </SelectItem>
+                          
+                          {/* C++ Data Structures */}
+                          <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-green-400' : 'text-green-600'} uppercase tracking-wide mt-2`}>
+                            🏗️ Data Structures
+                          </div>
+                          <SelectItem value="vectors" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            std::vector — pointers to elements
+                          </SelectItem>
+                          <SelectItem value="linked_list" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            🔗 Linked List — nodes
+                          </SelectItem>
+                          <SelectItem value="binary_tree" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            🌳 Binary Tree — left/right
+                          </SelectItem>
+                          <SelectItem value="doubly_linked" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            🔗🔗 Doubly Linked — prev/next
+                          </SelectItem>
+                          
+                          {/* C++ Memory Issues */}
+                          <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-red-400' : 'text-red-600'} uppercase tracking-wide mt-2`}>
+                            ⚠️ Memory Issues
+                          </div>
+                          <SelectItem value="memory_leak" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            Memory Leak — unfree'd heap
+                          </SelectItem>
+                          <SelectItem value="raii" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            RAII Pattern — safe cleanup
+                          </SelectItem>
+                        </>
+                      ) : (
+                        <>
+                          {/* C Beginner Examples */}
+                          <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-purple-400' : 'text-purple-600'} uppercase tracking-wide`}>
+                            🎯 Beginner
+                          </div>
+                          <SelectItem value="basic" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            Basic Pointers — malloc/free
+                          </SelectItem>
+                          <SelectItem value="malloc_free" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            malloc/free — dynamic memory
+                          </SelectItem>
+                          
+                          {/* C Intermediate */}
+                          <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} uppercase tracking-wide mt-2`}>
+                            📈 Intermediate
+                          </div>
+                          <SelectItem value="arrays" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            Arrays — stack & heap
+                          </SelectItem>
+                          <SelectItem value="pointer_arithmetic" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            Pointer Basics — multiple ptrs
+                          </SelectItem>
+                          <SelectItem value="structs" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            Structs — custom types
+                          </SelectItem>
+                          <SelectItem value="calloc" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            calloc — zero-initialized
+                          </SelectItem>
+                          
+                          {/* C Memory Issues */}
+                          <div className={`px-2 py-1.5 text-xs font-semibold ${isDarkMode ? 'text-red-400' : 'text-red-600'} uppercase tracking-wide mt-2`}>
+                            ⚠️ Memory Issues
+                          </div>
+                          <SelectItem value="memory_leak" className={isDarkMode ? 'text-gray-200 focus:bg-gray-700' : ''}>
+                            Memory Leak — unfree'd heap
+                          </SelectItem>
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  
+                  <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} hidden sm:inline`}>
+                    or write your own code below
+                  </span>
+                </div>
+              </div>
+              
               <CodeEditor
                 code={code}
                 onChange={handleCodeChange}

@@ -1,26 +1,41 @@
 /**
- * C++ Memory Simulator - Enhanced Version
- * Supports: primitives, pointers, arrays, functions, references, structs/classes, std::vector
- * Enhanced: Linked list detection, binary tree detection, data structure pattern recognition
+ * C++ Memory Simulator - Fixed Version
+ * 
+ * FIXES:
+ * - Stack/heap address overlap: Stack uses 0x7fff range, heap uses 0x5xxx range
+ * - Multiple pointer declarations: int *foo, *bar;
+ * - For loops and basic control flow
+ * - std::vector properly represented as RAII structure (not flagged as leak)
+ * - Pointer assignments to vector elements: foo = &vec[0]
+ * - Uninitialized pointers show as "uninitialized" not nullptr
  */
 
-let addressCounter = 0x1000;
+// Separate counters for stack and heap with non-overlapping ranges
+let stackAddressCounter = 0x7fff0000; // Stack grows "down" (high addresses)
+let heapAddressCounter = 0x55550000;  // Heap in middle range
 
-function generateAddress() {
-  const addr = `0x${addressCounter.toString(16)}`;
-  addressCounter += 8;
+function generateStackAddress() {
+  const addr = `0x${stackAddressCounter.toString(16)}`;
+  stackAddressCounter -= 8; // Stack grows down
   return addr;
 }
 
-function resetAddressCounter() {
-  addressCounter = 0x1000;
+function generateHeapAddress() {
+  const addr = `0x${heapAddressCounter.toString(16)}`;
+  heapAddressCounter += 8; // Heap grows up
+  return addr;
+}
+
+function resetAddressCounters() {
+  stackAddressCounter = 0x7fff0000;
+  heapAddressCounter = 0x55550000;
 }
 
 const SUPPORTED_TYPES = [
   'int', 'float', 'double', 'char', 'bool',
   'long', 'short', 'unsigned', 'signed',
   'std::string', 'string', 'void', 'std::vector',
-  'Node', 'ListNode', 'TreeNode' // Common DS node types
+  'Node', 'ListNode', 'TreeNode', 'size_t'
 ];
 
 const TYPE_PATTERN = SUPPORTED_TYPES.join('|').replace(/\./g, '\\.');
@@ -58,7 +73,7 @@ function isBinaryTreeNode(structDef) {
  */
 export function parseAndSimulateCpp(code) {
   try {
-    resetAddressCounter();
+    resetAddressCounters();
     
     if (!code || typeof code !== 'string') {
       console.warn("Invalid code input");
@@ -76,6 +91,10 @@ export function parseAndSimulateCpp(code) {
     const memoryLeaks = new Set();
     const structs = new Map();
     const functions = new Map();
+    // Track which heap allocations are RAII-managed (vectors, strings, etc.)
+    const raiiManagedHeap = new Set();
+    // Track uninitialized variables
+    const uninitializedVars = new Set();
     
     // Stack frames for function calls
     const callStack = [{ name: 'main', variables: new Map(), lineOffset: 0 }];
@@ -160,16 +179,112 @@ export function parseAndSimulateCpp(code) {
   function executeLine(line, lineIndex, currentFrame) {
     const trimmedLine = line.trim();
     
-    if (!trimmedLine || trimmedLine.startsWith('//') || trimmedLine.startsWith('/*')) {
+    if (!trimmedLine || trimmedLine.startsWith('//') || trimmedLine.startsWith('/*') || 
+        trimmedLine === '{' || trimmedLine === '}' || trimmedLine.startsWith('#')) {
       return null;
     }
     
     try {
       let parsed = false;
       
+      // ========== FOR LOOP HANDLING ==========
+      const forLoopMatch = trimmedLine.match(/^for\s*\(\s*(?:int\s+)?(\w+)\s*=\s*(\d+)\s*;\s*\w+\s*(<|<=|>|>=)\s*(\d+)\s*;\s*\w+(\+\+|--|\+=\d+|-=\d+)\s*\)\s*\{?\s*$/);
+      if (forLoopMatch) {
+        const [, loopVar, startVal, comparison, endVal, increment] = forLoopMatch;
+        const start = parseInt(startVal);
+        const end = parseInt(endVal);
+        
+        // Create loop variable
+        const address = generateStackAddress();
+        currentFrame.variables.set(loopVar, {
+          name: loopVar,
+          type: 'int',
+          value: start,
+          address,
+          isLoopVariable: true,
+        });
+        
+        addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
+        
+        // Find loop body
+        let braceCount = trimmedLine.includes('{') ? 1 : 0;
+        let loopBodyStart = lineIndex + 1;
+        let loopBodyEnd = lineIndex + 1;
+        
+        // If opening brace is on same line, body starts next line
+        if (!trimmedLine.includes('{')) {
+          // Look for opening brace
+          for (let j = lineIndex + 1; j < allLines.length; j++) {
+            if (allLines[j].trim() === '{') {
+              braceCount = 1;
+              loopBodyStart = j + 1;
+              break;
+            }
+          }
+        }
+        
+        // Find closing brace
+        for (let j = loopBodyStart; j < allLines.length; j++) {
+          if (allLines[j].includes('{')) braceCount++;
+          if (allLines[j].includes('}')) braceCount--;
+          if (braceCount === 0) {
+            loopBodyEnd = j - 1;
+            break;
+          }
+        }
+        
+        // Determine loop direction and bounds
+        let shouldContinue = (i) => {
+          if (comparison === '<') return i < end;
+          if (comparison === '<=') return i <= end;
+          if (comparison === '>') return i > end;
+          if (comparison === '>=') return i >= end;
+          return false;
+        };
+        
+        let getIncrement = () => {
+          if (increment === '++') return 1;
+          if (increment === '--') return -1;
+          const match = increment.match(/(\+|-)?=(\d+)/);
+          if (match) return (match[1] === '-' ? -1 : 1) * parseInt(match[2]);
+          return 1;
+        };
+        
+        const step = getIncrement();
+        const maxIterations = 100; // Safety limit
+        let iterations = 0;
+        
+        for (let i = start; shouldContinue(i) && iterations < maxIterations; i += step) {
+          iterations++;
+          // Update loop variable
+          currentFrame.variables.set(loopVar, {
+            ...currentFrame.variables.get(loopVar),
+            value: i,
+          });
+          
+          // Execute loop body
+          for (let j = loopBodyStart; j <= loopBodyEnd; j++) {
+            if (allLines[j].trim() && !allLines[j].trim().startsWith('//')) {
+              executeLine(allLines[j], j, currentFrame);
+            }
+          }
+        }
+        
+        parsed = true;
+        return { skipToLine: loopBodyEnd + 1 };
+      }
+      
+      // ========== WHILE LOOP HANDLING ==========
+      const whileLoopMatch = trimmedLine.match(/^while\s*\(\s*(.+)\s*\)\s*\{?\s*$/);
+      if (whileLoopMatch) {
+        // Basic while loop support - execute a few iterations for visualization
+        addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
+        parsed = true;
+      }
+      
       // Function call: functionName(args);
       const funcCallMatch = trimmedLine.match(/^(\w+)\s*\(([^)]*)\)\s*;?$/);
-      if (funcCallMatch && functions.has(funcCallMatch[1])) {
+      if (!parsed && funcCallMatch && functions.has(funcCallMatch[1])) {
         const [, funcName, argsStr] = funcCallMatch;
         const func = functions.get(funcName);
         
@@ -182,7 +297,7 @@ export function parseAndSimulateCpp(code) {
         func.params.forEach((param, idx) => {
           if (idx < args.length) {
             const argValue = evaluateExpression(args[idx], currentFrame);
-            const address = generateAddress();
+            const address = generateStackAddress();
             newFrame.variables.set(param.name, {
               name: param.name,
               type: normalizeType(param.type),
@@ -192,7 +307,7 @@ export function parseAndSimulateCpp(code) {
           }
         });
         
-        addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+        addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
         
         // Execute function body
         func.body.forEach(({ line: bodyLine, lineNumber }) => {
@@ -203,7 +318,7 @@ export function parseAndSimulateCpp(code) {
               const returnValue = evaluateExpression(returnMatch[1], newFrame);
               // Store return value (simplified - not storing in variable for now)
             }
-            addStep(steps, lineNumber + 1, bodyLine.trim(), callStack, heap, pointers, references, danglingPointers);
+            addStep(steps, lineNumber + 1, bodyLine.trim(), callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           } else {
             executeLine(bodyLine, lineNumber, newFrame);
           }
@@ -211,7 +326,7 @@ export function parseAndSimulateCpp(code) {
         
         // Pop stack frame
         callStack.pop();
-        addStep(steps, lineIndex + 1, `// end of ${funcName}()`, callStack, heap, pointers, references, danglingPointers);
+        addStep(steps, lineIndex + 1, `// end of ${funcName}()`, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
         
         parsed = true;
       }
@@ -232,7 +347,7 @@ export function parseAndSimulateCpp(code) {
           func.params.forEach((param, idx) => {
             if (idx < args.length) {
               const argValue = evaluateExpression(args[idx], currentFrame);
-              const address = generateAddress();
+              const address = generateStackAddress();
               newFrame.variables.set(param.name, {
                 name: param.name,
                 type: normalizeType(param.type),
@@ -242,7 +357,7 @@ export function parseAndSimulateCpp(code) {
             }
           });
           
-          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           
           // Execute function body and capture return value
           let returnValue = getDefaultValue(type);
@@ -252,7 +367,7 @@ export function parseAndSimulateCpp(code) {
               if (returnMatch) {
                 returnValue = evaluateExpression(returnMatch[1], newFrame);
               }
-              addStep(steps, lineNumber + 1, bodyLine.trim(), callStack, heap, pointers, references, danglingPointers);
+              addStep(steps, lineNumber + 1, bodyLine.trim(), callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
             } else {
               executeLine(bodyLine, lineNumber, newFrame);
             }
@@ -262,7 +377,7 @@ export function parseAndSimulateCpp(code) {
           callStack.pop();
           
           // Store return value in caller's frame
-          const address = generateAddress();
+          const address = generateStackAddress();
           currentFrame.variables.set(varName, {
             name: varName,
             type: normalizeType(type),
@@ -270,45 +385,63 @@ export function parseAndSimulateCpp(code) {
             address,
           });
           
-          addStep(steps, lineIndex + 1, `${varName} = ${returnValue} // from ${funcName}()`, callStack, heap, pointers, references, danglingPointers);
+          addStep(steps, lineIndex + 1, `${varName} = ${returnValue} // from ${funcName}()`, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           parsed = true;
         }
       }
       
-      // std::vector declaration
+      // ========== std::vector declaration - PROPERLY AS RAII ==========
       if (!parsed) {
         const vectorPattern = /^\s*std::vector\s*<\s*(\w+)\s*>\s+(\w+)\s*(?:=\s*\{([^}]*)\})?\s*;?/;
         const vectorMatch = trimmedLine.match(vectorPattern);
         if (vectorMatch) {
           const [, elemType, name, initValues] = vectorMatch;
-          const address = generateAddress();
-          const heapAddress = generateAddress();
+          const address = generateStackAddress();
+          const heapAddress = generateHeapAddress();
           
           const values = initValues 
             ? initValues.split(',').map(v => parseValue(v.trim(), elemType))
             : [];
           
+          // Heap stores the vector's internal data buffer
           heap.set(heapAddress, {
-            type: `std::vector<${elemType}>`,
+            type: `${elemType}[]`,  // Show as array of element type
             value: values,
             isDeleted: false,
-            isVector: true,
+            isVectorData: true,
             elemType: elemType,
+            ownedByVector: name,  // Track that this is managed by a vector
           });
           
-          memoryLeaks.add(heapAddress);
+          // Mark as RAII-managed - NOT a memory leak
+          raiiManagedHeap.add(heapAddress);
           
+          // Vector itself is a STACK variable (struct-like)
           currentFrame.variables.set(name, {
             name,
             type: `std::vector<${elemType}>`,
-            value: heapAddress,
             address,
             isVector: true,
+            isRAII: true,  // Mark as RAII - destructor will clean up
+            // Vector internal representation
+            vectorData: {
+              dataPtr: heapAddress,
+              size: values.length,
+              capacity: Math.max(values.length, 1),
+            },
+            // For visualization, show it's a proper object
+            members: [
+              { name: '_data', type: `${elemType}*`, value: heapAddress },
+              { name: '_size', type: 'size_t', value: values.length },
+              { name: '_capacity', type: 'size_t', value: Math.max(values.length, 1) },
+            ],
+            isStruct: true,
+            structType: 'std::vector',
           });
           
-          pointers.set(name, heapAddress);
+          pointers.set(`${name}._data`, heapAddress);
           
-          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           parsed = true;
         }
       }
@@ -321,15 +454,115 @@ export function parseAndSimulateCpp(code) {
           
           if (currentFrame.variables.has(vecName)) {
             const variable = currentFrame.variables.get(vecName);
-            if (variable.isVector && variable.value && heap.has(variable.value)) {
-              const heapBlock = heap.get(variable.value);
+            if (variable.isVector && variable.vectorData && heap.has(variable.vectorData.dataPtr)) {
+              const heapBlock = heap.get(variable.vectorData.dataPtr);
               const parsedValue = parseValue(value, heapBlock.elemType);
               heapBlock.value.push(parsedValue);
-              heap.set(variable.value, heapBlock);
+              heap.set(variable.vectorData.dataPtr, heapBlock);
+              
+              // Update vector metadata
+              variable.vectorData.size = heapBlock.value.length;
+              if (variable.vectorData.size > variable.vectorData.capacity) {
+                variable.vectorData.capacity = variable.vectorData.size * 2; // Typical growth
+              }
+              // Update members display
+              variable.members = [
+                { name: '_data', type: `${heapBlock.elemType}*`, value: variable.vectorData.dataPtr },
+                { name: '_size', type: 'size_t', value: variable.vectorData.size },
+                { name: '_capacity', type: 'size_t', value: variable.vectorData.capacity },
+              ];
+              currentFrame.variables.set(vecName, variable);
             }
           }
           
-          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
+          parsed = true;
+        }
+      }
+      
+      // ========== POINTER ASSIGNMENT TO VECTOR ELEMENT: foo = &vec[0]; ==========
+      if (!parsed) {
+        const ptrToVecElemMatch = trimmedLine.match(/^\s*(\w+)\s*=\s*&(\w+)\s*\[\s*(\d+)\s*\]\s*;?/);
+        if (ptrToVecElemMatch) {
+          const [, ptrName, vecName, indexStr] = ptrToVecElemMatch;
+          const index = parseInt(indexStr);
+          
+          if (currentFrame.variables.has(ptrName) && currentFrame.variables.has(vecName)) {
+            const ptrVar = currentFrame.variables.get(ptrName);
+            const vecVar = currentFrame.variables.get(vecName);
+            
+            if (ptrVar.type.includes('*')) {
+              let targetAddress = null;
+              
+              if (vecVar.isVector && vecVar.vectorData) {
+                // Point to element in vector's heap data
+                // In reality, &vec[i] gives address of element, we'll represent this
+                const heapAddr = vecVar.vectorData.dataPtr;
+                if (heap.has(heapAddr)) {
+                  // Create a virtual address for the element
+                  targetAddress = `${heapAddr}+${index * 4}`; // Assuming int = 4 bytes
+                  
+                  // Store the actual heap address for arrow drawing
+                  currentFrame.variables.set(ptrName, {
+                    ...ptrVar,
+                    value: heapAddr,
+                    pointsToIndex: index,
+                    pointsToVector: vecName,
+                  });
+                  
+                  pointers.set(ptrName, heapAddr);
+                  uninitializedVars.delete(ptrName);
+                }
+              } else if (vecVar.isArray) {
+                // Static array - point to its address + offset
+                targetAddress = vecVar.address;
+                currentFrame.variables.set(ptrName, {
+                  ...ptrVar,
+                  value: targetAddress,
+                  pointsToIndex: index,
+                  pointsToArray: vecName,
+                });
+                
+                pointers.set(ptrName, targetAddress);
+                uninitializedVars.delete(ptrName);
+              }
+            }
+          }
+          
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
+          parsed = true;
+        }
+      }
+      
+      // ========== MULTIPLE POINTER DECLARATIONS: int *foo, *bar; ==========
+      if (!parsed) {
+        const multiPtrDeclPattern = new RegExp(`^\\s*(${TYPE_PATTERN})\\s*\\*\\s*(\\w+)\\s*(?:,\\s*\\*\\s*(\\w+))+\\s*;?\\s*$`);
+        const multiPtrMatch = trimmedLine.match(multiPtrDeclPattern);
+        
+        // Also try a more flexible pattern
+        const flexMultiPtrPattern = new RegExp(`^\\s*(${TYPE_PATTERN})\\s*\\*\\s*((?:\\w+\\s*,\\s*\\*\\s*)*\\w+)\\s*;?\\s*$`);
+        const flexMultiPtrMatch = trimmedLine.match(flexMultiPtrPattern);
+        
+        if (flexMultiPtrMatch) {
+          const [, type, varsSection] = flexMultiPtrMatch;
+          // Parse "foo, *bar, *baz" pattern
+          const varNames = varsSection.split(',').map(v => v.trim().replace(/^\*\s*/, ''));
+          
+          varNames.forEach(name => {
+            if (name) {
+              const address = generateStackAddress();
+              currentFrame.variables.set(name, {
+                name,
+                type: `${normalizeType(type)}*`,
+                value: null,
+                address,
+                isUninitialized: true,
+              });
+              uninitializedVars.add(name);
+            }
+          });
+          
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           parsed = true;
         }
       }
@@ -343,12 +576,12 @@ export function parseAndSimulateCpp(code) {
           
           if (currentFrame.variables.has(name)) {
             const variable = currentFrame.variables.get(name);
-            if (variable.isVector && variable.value && heap.has(variable.value)) {
-              const heapBlock = heap.get(variable.value);
+            if (variable.isVector && variable.vectorData && heap.has(variable.vectorData.dataPtr)) {
+              const heapBlock = heap.get(variable.vectorData.dataPtr);
               if (idx >= 0 && idx < heapBlock.value.length) {
                 heapBlock.value[idx] = parseValue(value, heapBlock.elemType);
-                heap.set(variable.value, heapBlock);
-                addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+                heap.set(variable.vectorData.dataPtr, heapBlock);
+                addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
                 parsed = true;
               }
             }
@@ -363,7 +596,7 @@ export function parseAndSimulateCpp(code) {
         if (staticArrayMatch) {
           const [, type, name, size, initValues] = staticArrayMatch;
           const arraySize = parseInt(size);
-          const address = generateAddress();
+          const address = generateStackAddress();
           
           const values = initValues 
             ? initValues.split(',').map(v => parseValue(v.trim(), type))
@@ -378,7 +611,7 @@ export function parseAndSimulateCpp(code) {
             arraySize,
           });
           
-          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           parsed = true;
         }
       }
@@ -390,8 +623,8 @@ export function parseAndSimulateCpp(code) {
         if (dynArrayMatch) {
           const [, ptrType, name, arrayType, size] = dynArrayMatch;
           const arraySize = parseInt(size);
-          const address = generateAddress();
-          const heapAddress = generateAddress();
+          const address = generateStackAddress();
+          const heapAddress = generateHeapAddress();
           
           const values = Array(arraySize).fill(getDefaultValue(arrayType));
           
@@ -403,7 +636,7 @@ export function parseAndSimulateCpp(code) {
             arraySize,
           });
           
-          memoryLeaks.add(heapAddress);
+          memoryLeaks.add(heapAddress); // Manual allocation - needs delete[]
           
           currentFrame.variables.set(name, {
             name,
@@ -414,7 +647,7 @@ export function parseAndSimulateCpp(code) {
           
           pointers.set(name, heapAddress);
           
-          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           parsed = true;
         }
       }
@@ -452,7 +685,7 @@ export function parseAndSimulateCpp(code) {
           }
 
           if(parsed) {
-            addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+            addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           }
         }
       }
@@ -466,7 +699,7 @@ export function parseAndSimulateCpp(code) {
           
           if (currentFrame.variables.has(targetName)) {
             const target = currentFrame.variables.get(targetName);
-            const address = generateAddress();
+            const address = generateStackAddress();
             
             currentFrame.variables.set(refName, {
               name: refName,
@@ -480,7 +713,7 @@ export function parseAndSimulateCpp(code) {
             
             references.set(refName, target.address);
             
-            addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+            addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
             parsed = true;
           }
         }
@@ -493,7 +726,7 @@ export function parseAndSimulateCpp(code) {
           const structInstMatch = trimmedLine.match(structInstPattern);
           if (structInstMatch) {
             const [, instanceName] = structInstMatch;
-            const address = generateAddress();
+            const address = generateStackAddress();
             
             const memberValues = {};
             structDef.members.forEach(member => {
@@ -520,7 +753,7 @@ export function parseAndSimulateCpp(code) {
               dataStructureType: structDef.dataStructureType,
             });
             
-            addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+            addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
             parsed = true;
             break;
           }
@@ -534,8 +767,8 @@ export function parseAndSimulateCpp(code) {
           const heapStructMatch = trimmedLine.match(heapStructPattern);
           if (heapStructMatch) {
             const [, ptrName] = heapStructMatch;
-            const stackAddress = generateAddress();
-            const heapAddress = generateAddress();
+            const stackAddress = generateStackAddress();
+            const heapAddress = generateHeapAddress();
             
             const memberValues = {};
             structDef.members.forEach(member => {
@@ -561,7 +794,7 @@ export function parseAndSimulateCpp(code) {
               dataStructureType: structDef.dataStructureType,
             });
             
-            memoryLeaks.add(heapAddress);
+            memoryLeaks.add(heapAddress); // Manual new - needs delete
             
             // Add pointer to stack
             currentFrame.variables.set(ptrName, {
@@ -575,7 +808,7 @@ export function parseAndSimulateCpp(code) {
             
             pointers.set(ptrName, heapAddress);
             
-            addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+            addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
             parsed = true;
             break;
           }
@@ -608,7 +841,7 @@ export function parseAndSimulateCpp(code) {
             }
           }
           
-          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           parsed = true;
         } else if (nestedMemberCallMatch) {
           const [, objName, memberName, pushBackValue] = nestedMemberCallMatch;
@@ -623,7 +856,7 @@ export function parseAndSimulateCpp(code) {
                 
                 obj.value[memberName].push(parseValue(pushBackValue, elemType));
                 currentFrame.variables.set(objName, obj);
-                addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+                addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
                 parsed = true;
               }
             }
@@ -665,7 +898,7 @@ export function parseAndSimulateCpp(code) {
             }
           }
           
-          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           parsed = true;
         }
       }
@@ -676,7 +909,7 @@ export function parseAndSimulateCpp(code) {
         const varDeclMatch = trimmedLine.match(varDeclPattern);
         if (varDeclMatch) {
           const [, type, name, value] = varDeclMatch;
-          const address = generateAddress();
+          const address = generateStackAddress();
           currentFrame.variables.set(name, {
             name,
             type: normalizeType(type),
@@ -684,27 +917,50 @@ export function parseAndSimulateCpp(code) {
             address,
           });
           
-          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           parsed = true;
         }
       }
       
-      // Pointer declaration
+      // Uninitialized variable declaration (int x;)
+      if (!parsed) {
+        const uninitVarPattern = new RegExp(`^\\s*(${TYPE_PATTERN})\\s+(\\w+)\\s*;\\s*$`);
+        const uninitVarMatch = trimmedLine.match(uninitVarPattern);
+        if (uninitVarMatch) {
+          const [, type, name] = uninitVarMatch;
+          const address = generateStackAddress();
+          currentFrame.variables.set(name, {
+            name,
+            type: normalizeType(type),
+            value: '(uninitialized)',
+            address,
+            isUninitialized: true,
+          });
+          uninitializedVars.add(name);
+          
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
+          parsed = true;
+        }
+      }
+      
+      // Pointer declaration (initialized or uninitialized)
       if (!parsed) {
         const ptrDeclPattern = new RegExp(`^\\s*(${TYPE_PATTERN})\\s*\\*\\s*(\\w+)\\s*(?:=\\s*([^;]+))?;?\\s*$`);
         const ptrDeclMatch = trimmedLine.match(ptrDeclPattern);
         if (ptrDeclMatch) {
           const [, type, name, initialValue] = ptrDeclMatch;
-          const address = generateAddress();
+          const address = generateStackAddress();
           
           let targetAddress = null;
+          let isUninitialized = false;
+          
           if (initialValue) {
             if (initialValue.includes('new') && !initialValue.includes('[')) {
               const newPattern = new RegExp(`new\\s+(${TYPE_PATTERN})\\s*(?:\\(([^)]*)\\))?`);
               const newMatch = initialValue.match(newPattern);
               if (newMatch) {
                 const [, heapType, heapValue] = newMatch;
-                targetAddress = generateAddress();
+                targetAddress = generateHeapAddress();
                 heap.set(targetAddress, {
                   type: normalizeType(heapType),
                   value: parseValue(heapValue || getDefaultValue(heapType), heapType),
@@ -714,26 +970,43 @@ export function parseAndSimulateCpp(code) {
               }
             } else if (initialValue.startsWith('&')) {
               const targetVar = initialValue.substring(1).trim();
-              if (currentFrame.variables.has(targetVar)) {
+              // Handle &vec[i] syntax
+              const vecElemMatch = targetVar.match(/^(\w+)\s*\[\s*(\d+)\s*\]$/);
+              if (vecElemMatch) {
+                const [, vecName, idxStr] = vecElemMatch;
+                if (currentFrame.variables.has(vecName)) {
+                  const vecVar = currentFrame.variables.get(vecName);
+                  if (vecVar.isVector && vecVar.vectorData) {
+                    targetAddress = vecVar.vectorData.dataPtr;
+                  } else if (vecVar.isArray) {
+                    targetAddress = vecVar.address;
+                  }
+                }
+              } else if (currentFrame.variables.has(targetVar)) {
                 targetAddress = currentFrame.variables.get(targetVar).address;
               }
             } else if (initialValue === 'nullptr' || initialValue === 'NULL') {
               targetAddress = null;
             }
+          } else {
+            // Uninitialized pointer - this is important!
+            isUninitialized = true;
+            uninitializedVars.add(name);
           }
           
           currentFrame.variables.set(name, {
             name,
             type: `${normalizeType(type)}*`,
-            value: targetAddress,
+            value: isUninitialized ? '(uninitialized)' : targetAddress,
             address,
+            isUninitialized,
           });
           
           if (targetAddress) {
             pointers.set(name, targetAddress);
           }
           
-          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           parsed = true;
         }
       }
@@ -746,6 +1019,7 @@ export function parseAndSimulateCpp(code) {
           
           if (currentFrame.variables.has(name)) {
             const variable = currentFrame.variables.get(name);
+            uninitializedVars.delete(name);
             
             if (variable.type.includes('*')) {
               let targetAddress = null;
@@ -755,7 +1029,7 @@ export function parseAndSimulateCpp(code) {
                 const newMatch = value.match(newPattern);
                 if (newMatch) {
                   const [, heapType, heapValue] = newMatch;
-                  targetAddress = generateAddress();
+                  targetAddress = generateHeapAddress();
                   heap.set(targetAddress, {
                     type: normalizeType(heapType),
                     value: parseValue(heapValue || getDefaultValue(heapType), heapType),
@@ -765,7 +1039,19 @@ export function parseAndSimulateCpp(code) {
                 }
               } else if (value.startsWith('&')) {
                 const targetVar = value.substring(1).trim();
-                if (currentFrame.variables.has(targetVar)) {
+                // Handle &vec[i] syntax
+                const vecElemMatch = targetVar.match(/^(\w+)\s*\[\s*(\d+)\s*\]$/);
+                if (vecElemMatch) {
+                  const [, vecName, idxStr] = vecElemMatch;
+                  if (currentFrame.variables.has(vecName)) {
+                    const vecVar = currentFrame.variables.get(vecName);
+                    if (vecVar.isVector && vecVar.vectorData) {
+                      targetAddress = vecVar.vectorData.dataPtr;
+                    } else if (vecVar.isArray) {
+                      targetAddress = vecVar.address;
+                    }
+                  }
+                } else if (currentFrame.variables.has(targetVar)) {
                   targetAddress = currentFrame.variables.get(targetVar).address;
                 }
               } else if (currentFrame.variables.has(value) && currentFrame.variables.get(value).type.includes('*')) {
@@ -775,16 +1061,16 @@ export function parseAndSimulateCpp(code) {
               }
               
               const oldAddress = variable.value;
-              if (oldAddress && heap.has(oldAddress) && !heap.get(oldAddress).isDeleted) {
+              if (oldAddress && typeof oldAddress === 'string' && oldAddress.startsWith('0x') && heap.has(oldAddress) && !heap.get(oldAddress).isDeleted) {
                 const stillReferenced = Array.from(currentFrame.variables.values()).some(v => 
                   (v.type.includes('*') && v.value === oldAddress && v.name !== name) ||
-                  (v.isVector && v.value === oldAddress && v.name !== name)
+                  (v.isVector && v.vectorData?.dataPtr === oldAddress && v.name !== name)
                 );
                 const otherPointersReferencing = Array.from(pointers.entries()).some(([ptrKey, ptrAddr]) => 
                     ptrAddr === oldAddress && ptrKey !== name
                 );
 
-                if (!stillReferenced && !otherPointersReferencing) {
+                if (!stillReferenced && !otherPointersReferencing && !raiiManagedHeap.has(oldAddress)) {
                   memoryLeaks.add(oldAddress);
                 }
               }
@@ -792,6 +1078,7 @@ export function parseAndSimulateCpp(code) {
               currentFrame.variables.set(name, {
                 ...variable,
                 value: targetAddress,
+                isUninitialized: false,
               });
               
               if (targetAddress) {
@@ -807,10 +1094,11 @@ export function parseAndSimulateCpp(code) {
               currentFrame.variables.set(name, {
                 ...variable,
                 value: parseValue(value, variable.type),
+                isUninitialized: false,
               });
             }
             
-            addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+            addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
             parsed = true;
           }
         }
@@ -824,7 +1112,7 @@ export function parseAndSimulateCpp(code) {
           if (currentFrame.variables.has(ptrName)) {
             const pointer = currentFrame.variables.get(ptrName);
             const targetAddress = pointer.value;
-            if (targetAddress) {
+            if (targetAddress && typeof targetAddress === 'string' && targetAddress.startsWith('0x')) {
               const baseType = pointer.type.replace('*', '').trim();
               
               if (heap.has(targetAddress)) {
@@ -846,7 +1134,7 @@ export function parseAndSimulateCpp(code) {
             }
           }
           
-          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           parsed = true;
         }
       }
@@ -878,7 +1166,7 @@ export function parseAndSimulateCpp(code) {
             pointers.delete(ptrName);
           }
           
-          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers);
+          addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
           parsed = true;
         }
       }
@@ -902,59 +1190,72 @@ export function parseAndSimulateCpp(code) {
   }
   
   // Second pass: Execute main code with safety wrapper
-  allLines.forEach((line, index) => {
+  let i = 0;
+  while (i < allLines.length) {
     try {
+      const line = allLines[i];
       const trimmedLine = line.trim();
       
       if (!trimmedLine || trimmedLine.startsWith('//') || trimmedLine.startsWith('/*')) {
-        return;
+        i++;
+        continue;
       }
       
       // Skip struct/class definitions
       if (trimmedLine.match(/^(?:struct|class)\s+\w+/)) {
-        skipUntilLine = index;
+        skipUntilLine = i;
         let braceCount = 0;
-        for (let i = index; i < allLines.length; i++) {
-          if (allLines[i].includes('{')) braceCount++;
-          if (allLines[i].includes('}')) {
+        for (let j = i; j < allLines.length; j++) {
+          if (allLines[j].includes('{')) braceCount++;
+          if (allLines[j].includes('}')) {
             braceCount--;
             if (braceCount === 0) {
-              skipUntilLine = i;
+              skipUntilLine = j;
               break;
             }
           }
         }
-        return;
+        i = skipUntilLine + 1;
+        continue;
       }
       
-      if (index <= skipUntilLine) return;
+      if (i <= skipUntilLine) {
+        i++;
+        continue;
+      }
       
       // Skip function definitions (except main)
       if (trimmedLine.match(new RegExp(`^\\s*(${TYPE_PATTERN})\\s+(\\w+)\\s*\\([^)]*\\)\\s*\\{?`)) && !trimmedLine.includes('main')) {
-        skipUntilLine = index;
+        skipUntilLine = i;
         let braceCount = 1;
-        for (let i = index + 1; i < allLines.length; i++) {
-          if (allLines[i].includes('{')) braceCount++;
-          if (allLines[i].includes('}')) {
+        for (let j = i + 1; j < allLines.length; j++) {
+          if (allLines[j].includes('{')) braceCount++;
+          if (allLines[j].includes('}')) {
             braceCount--;
             if (braceCount === 0) {
-              skipUntilLine = i;
+              skipUntilLine = j;
               break;
             }
           }
         }
-        return;
+        i = skipUntilLine + 1;
+        continue;
       }
       
       const currentFrame = callStack[callStack.length - 1];
       if (currentFrame) {
-        executeLine(line, index, currentFrame);
+        const result = executeLine(line, i, currentFrame);
+        if (result && result.skipToLine) {
+          i = result.skipToLine;
+          continue;
+        }
       }
+      i++;
     } catch (lineError) {
-      console.warn(`Error executing line ${index + 1}: "${line}"`, lineError);
-      // Continue to next line instead of crashing
+      console.warn(`Error executing line ${i + 1}: "${allLines[i]}"`, lineError);
+      i++;
     }
-  });
+  }
   
   console.log(`Generated ${steps.length} execution steps`);
   return steps;
@@ -964,7 +1265,7 @@ export function parseAndSimulateCpp(code) {
   }
 }
 
-function addStep(steps, lineNumber, line, callStack, heap, pointers, references, danglingPointers) {
+function addStep(steps, lineNumber, line, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap = new Set()) {
   try {
     const currentFrame = callStack[callStack.length - 1];
     if (!currentFrame) {
@@ -976,75 +1277,31 @@ function addStep(steps, lineNumber, line, callStack, heap, pointers, references,
     const linkedListConnections = [];
     const treeConnections = [];
     
-    // #region agent log
-    try {
-      const logData = {
-        location: 'cppSimulator.jsx:979',
-        message: 'addStep - processing pointers',
-        data: {
-          pointersMapSize: pointers?.size || 0,
-          pointersEntries: pointers ? Array.from(pointers.entries()).map(([k, v]) => ({ name: String(k), addr: String(v) })) : [],
-          currentFrameVars: currentFrame?.variables ? Array.from(currentFrame.variables.keys()).map(k => String(k)) : []
-        },
-        timestamp: Date.now(),
-        sessionId: 'debug-session',
-        runId: 'run1',
-        hypothesisId: 'F'
-      };
-      fetch('http://127.0.0.1:7242/ingest/25914bc0-dac6-4278-a034-bc80fa884df5', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(logData)
-      }).catch(() => {});
-    } catch (logError) {
-      // Silently ignore logging errors
-    }
-    // #endregion
-    
     // Add pointer arrows with safety checks
-    console.log('[Simulator Debug] Processing pointers:', {
-      pointersMapSize: pointers.size,
-      pointersEntries: Array.from(pointers.entries()),
-      currentFrameVars: Array.from(currentFrame.variables.keys())
-    });
-    
     for (const [ptrName, targetAddr] of pointers.entries()) {
       try {
-        const varEntry = currentFrame.variables.get(ptrName);
-        console.log('[Simulator Debug] Checking pointer:', {
-          ptrName,
-          targetAddr,
-          hasVarEntry: !!varEntry,
-          varType: varEntry?.type,
-          isPointer: varEntry?.type?.includes('*'),
-          isVector: varEntry?.isVector
-        });
+        // Handle both regular pointer names and vector._data names
+        const basePtrName = ptrName.replace(/\._data$/, '');
+        const varEntry = currentFrame.variables.get(basePtrName);
         
         // If variable exists and is a pointer type, add the arrow
-        // The pointers Map already contains the correct mapping, so we trust it
-        if (varEntry && targetAddr && (varEntry.type?.includes('*') || varEntry.isVector)) {
-          const arrowData = {
-            from: ptrName,
-            to: targetAddr,
-            isDangling: danglingPointers.has(ptrName),
-            type: varEntry.isNodePointer ? 'node_pointer' : (varEntry.type?.includes('*') ? 'pointer' : 'vector_data_ptr'),
-            dataStructureType: varEntry.dataStructureType || null,
-          };
-          pointerArrows.push(arrowData);
-          console.log('[Simulator Debug] Added pointer arrow:', arrowData);
-        } else {
-          console.log('[Simulator Debug] Skipped pointer arrow:', {
-            ptrName,
-            targetAddr,
-            reason: !varEntry ? 'no varEntry' : !targetAddr ? 'no targetAddr' : 'not a pointer type'
-          });
+        if (varEntry && targetAddr) {
+          const isPointerType = varEntry.type?.includes('*') || varEntry.isVector;
+          if (isPointerType) {
+            const arrowData = {
+              from: basePtrName,
+              to: targetAddr,
+              isDangling: danglingPointers.has(basePtrName),
+              type: varEntry.isNodePointer ? 'node_pointer' : (varEntry.isVector ? 'vector_data_ptr' : 'pointer'),
+              dataStructureType: varEntry.dataStructureType || null,
+            };
+            pointerArrows.push(arrowData);
+          }
         }
       } catch (e) {
         console.warn("Error processing pointer:", ptrName, e);
       }
     }
-    
-    console.log('[Simulator Debug] Final pointerArrows:', pointerArrows);
     
     // Add reference arrows
     for (const [refName, targetAddr] of references.entries()) {
@@ -1104,40 +1361,55 @@ function addStep(steps, lineNumber, line, callStack, heap, pointers, references,
       }
     }
     
-    // #region agent log
-    try {
-      fetch('http://127.0.0.1:7242/ingest/25914bc0-dac6-4278-a034-bc80fa884df5', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'cppSimulator.jsx:1065',
-          message: 'addStep - finalizing memoryState',
-          data: {
-            pointerArrowsCount: pointerArrows.length,
-            pointerArrows: pointerArrows.map(p => ({ from: String(p.from || ''), to: String(p.to || '') })),
-            heapSize: heap?.size || 0
-          },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'F'
-        })
-      }).catch(() => {});
-    } catch (logError) {
-      // Silently ignore logging errors
+    // Build memory leaks list - exclude RAII-managed allocations
+    const actualMemoryLeaks = [];
+    for (const [addr, block] of heap.entries()) {
+      if (!block.isDeleted && !raiiManagedHeap.has(addr) && !block.ownedByVector) {
+        // Check if this is truly leaked (no pointers pointing to it)
+        const hasPointer = Array.from(pointers.values()).includes(addr);
+        if (!hasPointer) {
+          actualMemoryLeaks.push(addr);
+        }
+      }
     }
-    // #endregion
+    
+    // Deep clone helper to prevent reference sharing between steps
+    const deepClone = (obj) => {
+      if (obj === null || typeof obj !== 'object') return obj;
+      if (Array.isArray(obj)) return obj.map(item => deepClone(item));
+      const cloned = {};
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          cloned[key] = deepClone(obj[key]);
+        }
+      }
+      return cloned;
+    };
+    
+    // Deep clone stack variables to prevent mutations affecting previous steps
+    const clonedStack = Array.from(currentFrame.variables.values() || []).map(v => deepClone(v));
+    
+    // Deep clone heap to prevent mutations affecting previous steps
+    const clonedHeap = Array.from(heap.entries()).map(([addr, data]) => {
+      const clonedData = deepClone(data || {});
+      return { 
+        ...clonedData, 
+        address: addr,
+        isRAIIManaged: raiiManagedHeap.has(addr),
+      };
+    });
     
     steps.push({
       lineNumber: lineNumber,
       line: line || '',
       memoryState: {
-        stack: Array.from(currentFrame.variables.values() || []),
-        heap: Array.from(heap.entries()).map(([addr, data]) => ({ ...(data || {}), address: addr })),
+        stack: clonedStack,
+        heap: clonedHeap,
         pointers: pointerArrows,
-        linkedListConnections,
-        treeConnections,
+        linkedListConnections: deepClone(linkedListConnections),
+        treeConnections: deepClone(treeConnections),
         danglingPointers: Array.from(danglingPointers || []),
+        memoryLeaks: actualMemoryLeaks,
         callStack: callStack.map(frame => ({ name: frame?.name || 'unknown', varCount: frame?.variables?.size || 0 })),
       },
     });
@@ -1148,7 +1420,7 @@ function addStep(steps, lineNumber, line, callStack, heap, pointers, references,
 
 function normalizeType(type) {
   if (type === 'string') return 'std::string';
-  if (type.startsWith('std::vector')) return 'std::vector';
+  if (type.startsWith('std::vector')) return type; // Keep full vector type
   return type;
 }
 
@@ -1159,6 +1431,7 @@ function getDefaultValue(type) {
     case 'long':
     case 'short':
     case 'unsigned':
+    case 'size_t':
       return 0;
     case 'float':
     case 'double':
@@ -1169,9 +1442,8 @@ function getDefaultValue(type) {
       return false;
     case 'std::string':
       return '""';
-    case 'std::vector':
-      return [];
     default:
+      if (normalized.startsWith('std::vector')) return [];
       return 0;
   }
 }

@@ -2,7 +2,9 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Database, Trash2, AlertTriangle, Box, Layers, Braces } from "lucide-react";
 
-export default function HeapBlock({ block, isDarkMode, isLeaked, isInCycle = false, linkedListConnections = [] }) {
+export default function HeapBlock({ block, isDarkMode, isLeaked, isInCycle = false, linkedListConnections = [], isRAIIManaged = false }) {
+  // RAII-managed memory (like vector data) should never be shown as leaked
+  const actuallyLeaked = isLeaked && !isRAIIManaged && !block.isRAIIManaged && !block.ownedByVector;
   const formatValue = (value) => {
     if (value === null || value === undefined) return 'null';
     if (typeof value === 'string') {
@@ -62,15 +64,18 @@ export default function HeapBlock({ block, isDarkMode, isLeaked, isInCycle = fal
     : typeSize;
   
   // Premium gradient based on state
-  const gradientClass = isLeaked && !isDeleted
+  const isRAII = block.isRAIIManaged || block.ownedByVector || isRAIIManaged;
+  const gradientClass = actuallyLeaked && !isDeleted
     ? "from-red-500 via-red-600 to-red-700"
     : isDeleted 
       ? "from-gray-500 via-gray-600 to-gray-700"
-      : isArray
-        ? "from-amber-400 via-orange-500 to-red-500"
-        : isStruct
-          ? "from-rose-400 via-pink-500 to-purple-500"
-          : "from-orange-400 via-red-500 to-pink-500";
+      : isRAII
+        ? "from-emerald-400 via-teal-500 to-cyan-500"  // RAII managed = safe green/teal
+        : isArray
+          ? "from-amber-400 via-orange-500 to-red-500"
+          : isStruct
+            ? "from-rose-400 via-pink-500 to-purple-500"
+            : "from-orange-400 via-red-500 to-pink-500";
   
   // 3D shadow effect
   const shadowStyle = isDeleted 
@@ -78,7 +83,7 @@ export default function HeapBlock({ block, isDarkMode, isLeaked, isInCycle = fal
     : {
         boxShadow: `
           0 10px 30px -10px rgba(0, 0, 0, 0.4),
-          0 20px 50px -20px ${isLeaked ? 'rgba(239, 68, 68, 0.4)' : 'rgba(249, 115, 22, 0.3)'},
+          0 20px 50px -20px ${actuallyLeaked ? 'rgba(239, 68, 68, 0.4)' : isRAII ? 'rgba(16, 185, 129, 0.3)' : 'rgba(249, 115, 22, 0.3)'},
           inset 0 -3px 0 0 rgba(0, 0, 0, 0.2),
           inset 0 1px 0 0 rgba(255, 255, 255, 0.2)
         `
@@ -105,9 +110,11 @@ export default function HeapBlock({ block, isDarkMode, isLeaked, isInCycle = fal
             ? 'border-gray-400 opacity-50' 
             : isInCycle
               ? 'border-orange-400 ring-4 ring-orange-400/60 ring-offset-2 ring-offset-transparent'
-              : isLeaked 
+              : actuallyLeaked 
                 ? 'border-red-300 ring-2 ring-red-400 ring-offset-2 ring-offset-transparent' 
-                : 'border-white/30 group-hover:border-white/50'
+                : isRAII
+                  ? 'border-emerald-300 ring-2 ring-emerald-400/50 ring-offset-2 ring-offset-transparent'
+                  : 'border-white/30 group-hover:border-white/50'
         }`}
         style={shadowStyle}
         animate={isInCycle ? {
@@ -123,8 +130,8 @@ export default function HeapBlock({ block, isDarkMode, isLeaked, isInCycle = fal
           ease: "easeInOut"
         } : {}}
       >
-        {/* Memory Leak Badge */}
-        {isLeaked && !isDeleted && (
+        {/* Memory Leak Badge - only for actual leaks, not RAII */}
+        {actuallyLeaked && !isDeleted && (
           <motion.div
             initial={{ scale: 0, rotate: -10 }}
             animate={{ scale: 1, rotate: 0 }}
@@ -137,6 +144,18 @@ export default function HeapBlock({ block, isDarkMode, isLeaked, isInCycle = fal
               <AlertTriangle className="w-3.5 h-3.5" />
             </motion.span>
             LEAK
+          </motion.div>
+        )}
+        
+        {/* RAII Managed Badge - shows this memory is safely managed */}
+        {isRAII && !isDeleted && !actuallyLeaked && (
+          <motion.div
+            initial={{ scale: 0, rotate: 10 }}
+            animate={{ scale: 1, rotate: 0 }}
+            className="absolute -top-3 -right-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-xl flex items-center gap-1.5 border border-emerald-400 z-10"
+          >
+            <span>✓</span>
+            RAII
           </motion.div>
         )}
         
@@ -289,7 +308,7 @@ export default function HeapBlock({ block, isDarkMode, isLeaked, isInCycle = fal
               </span>
             )}
           </div>
-          {isLeaked && !isDeleted && (
+          {actuallyLeaked && !isDeleted && (
             <motion.div 
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
@@ -297,6 +316,16 @@ export default function HeapBlock({ block, isDarkMode, isLeaked, isInCycle = fal
             >
               <AlertTriangle className="w-4 h-4 text-red-300" />
               <span>Never freed - Memory Leak!</span>
+            </motion.div>
+          )}
+          {isRAII && !isDeleted && (
+            <motion.div 
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="text-xs bg-emerald-900/40 backdrop-blur-sm px-3 py-2 rounded-lg font-semibold flex items-center gap-2 border border-emerald-400/30"
+            >
+              <span className="text-emerald-300">✓</span>
+              <span>Managed by {block.ownedByVector ? `std::vector (${block.ownedByVector})` : 'RAII'} - auto-freed on scope exit</span>
             </motion.div>
           )}
         </div>

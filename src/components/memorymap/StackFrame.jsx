@@ -14,21 +14,27 @@ export default function StackFrame({ variable, isDarkMode }) {
     long: "from-blue-500 via-blue-600 to-blue-700",
     short: "from-blue-300 via-blue-400 to-blue-500",
     pointer: "from-green-400 via-green-500 to-green-600",
+    pointer_uninitialized: "from-red-400 via-red-500 to-red-600",
     reference: "from-purple-400 via-purple-500 to-purple-600",
     array: "from-teal-400 via-teal-500 to-teal-600",
     struct: "from-rose-400 via-rose-500 to-rose-600",
+    vector: "from-emerald-400 via-teal-500 to-cyan-500",
   };
 
   const getTypeColor = () => {
+    if (variable.isVector) return typeColors.vector;
     if (variable.isArray) return typeColors.array;
     if (variable.isStruct) return typeColors.struct;
-    if (variable.type.includes('*')) return typeColors.pointer;
+    if (variable.type.includes('*')) {
+      return variable.isUninitialized ? typeColors.pointer_uninitialized : typeColors.pointer;
+    }
     if (variable.type.includes('&')) return typeColors.reference;
     
     const baseType = variable.type.toLowerCase();
     if (typeColors[baseType]) return typeColors[baseType];
     
     if (baseType.includes('string')) return typeColors['std::string'];
+    if (baseType.includes('vector')) return typeColors.vector;
     
     return typeColors.int;
   };
@@ -37,6 +43,8 @@ export default function StackFrame({ variable, isDarkMode }) {
   const isReference = variable.type.includes('&');
   const isArray = variable.isArray;
   const isStruct = variable.isStruct;
+  const isVector = variable.isVector;
+  const isUninitialized = variable.isUninitialized;
   
   const formatValue = (value) => {
     if (typeof value === 'string') {
@@ -118,16 +126,21 @@ export default function StackFrame({ variable, isDarkMode }) {
         
         {isPointer ? (
           <div className="space-y-2">
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3 border border-white/20">
+            <div className={`bg-white/10 backdrop-blur-sm rounded-lg p-3 border ${isUninitialized ? 'border-red-400/50 bg-red-900/20' : 'border-white/20'}`}>
               <div className="text-xs opacity-75 mb-1">Stores Address:</div>
-              <span className="font-mono text-lg font-bold">
-                {variable.value || 'nullptr'}
+              <span className={`font-mono text-lg font-bold ${isUninitialized ? 'text-red-300' : ''}`}>
+                {isUninitialized ? '⚠️ (uninitialized)' : (variable.value || 'nullptr')}
               </span>
             </div>
-            {variable.value && (
+            {isUninitialized ? (
+              <div className="text-xs opacity-90 flex items-center gap-2 bg-red-900/30 rounded-lg p-2 border border-red-400/30">
+                <span className="text-red-300">⚠️</span>
+                <span className="text-red-200">WARNING: Contains garbage/random memory address!</span>
+              </div>
+            ) : variable.value && (
               <div className="text-xs opacity-90 flex items-center gap-2 bg-black/20 rounded-lg p-2">
                 <span className="text-yellow-200">→</span>
-                <span>Points to {isArray ? 'heap array' : 'heap memory'}</span>
+                <span>Points to {variable.pointsToVector ? `element in ${variable.pointsToVector}` : (isArray ? 'heap array' : 'heap memory')}</span>
               </div>
             )}
           </div>
@@ -142,6 +155,35 @@ export default function StackFrame({ variable, isDarkMode }) {
             <div className="text-xs opacity-90 flex items-center gap-2 bg-purple-400/20 rounded-lg p-2">
               <span className="text-purple-200">⇄</span>
               <span>Alias to existing variable</span>
+            </div>
+          </div>
+        ) : isVector ? (
+          <div className="space-y-2">
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3 border border-emerald-400/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs opacity-75 font-semibold uppercase tracking-wide">
+                  📦 std::vector (RAII Container)
+                </span>
+                <span className="text-[10px] bg-emerald-400/30 px-2 py-0.5 rounded-full text-emerald-200">
+                  ✓ Auto-managed
+                </span>
+              </div>
+              {variable.members?.map((member, idx) => (
+                <div key={idx} className="flex items-center justify-between py-1.5 border-b border-white/10 last:border-0">
+                  <span className="text-sm opacity-75">.{member.name}</span>
+                  <span className="font-mono text-sm font-bold">
+                    {member.name === '_data' ? (
+                      <span className="text-emerald-300">→ {member.value}</span>
+                    ) : (
+                      member.value
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="text-xs opacity-90 flex items-center gap-2 bg-emerald-400/20 rounded-lg p-2">
+              <span className="text-emerald-200">✓</span>
+              <span>Destructor auto-frees data when scope ends</span>
             </div>
           </div>
         ) : isArray ? (
