@@ -16,6 +16,7 @@ export default function StackFrame({ variable, isDarkMode }) {
     pointer: "from-green-400 via-green-500 to-green-600",
     pointer_uninitialized: "from-red-400 via-red-500 to-red-600",
     reference: "from-purple-400 via-purple-500 to-purple-600",
+    pointer_reference: "from-fuchsia-400 via-fuchsia-500 to-purple-600", // *& type
     array: "from-teal-400 via-teal-500 to-teal-600",
     struct: "from-rose-400 via-rose-500 to-rose-600",
     vector: "from-emerald-400 via-teal-500 to-cyan-500",
@@ -25,6 +26,8 @@ export default function StackFrame({ variable, isDarkMode }) {
     if (variable.isVector) return typeColors.vector;
     if (variable.isArray) return typeColors.array;
     if (variable.isStruct) return typeColors.struct;
+    // Pointer reference (*&) - check first since it contains both * and &
+    if (variable.isPointerReference) return typeColors.pointer_reference;
     if (variable.type.includes('*')) {
       return variable.isUninitialized ? typeColors.pointer_uninitialized : typeColors.pointer;
     }
@@ -39,8 +42,9 @@ export default function StackFrame({ variable, isDarkMode }) {
     return typeColors.int;
   };
 
-  const isPointer = variable.type.includes('*');
-  const isReference = variable.type.includes('&');
+  const isPointerReference = variable.isPointerReference; // Type *& - reference to a pointer
+  const isPointer = variable.type.includes('*') && !isPointerReference;
+  const isReference = variable.type.includes('&') && !isPointerReference;
   const isArray = variable.isArray;
   const isStruct = variable.isStruct;
   const isVector = variable.isVector;
@@ -107,10 +111,15 @@ export default function StackFrame({ variable, isDarkMode }) {
       whileHover={{ scale: 1.02, y: -2 }}
       className="relative"
     >
-      <div className={`bg-gradient-to-br ${getTypeColor()} rounded-xl p-5 shadow-xl text-white border-2 border-white/30 ${(isPointer || isReference) ? 'ring-2 ring-green-300 ring-offset-2' : ''}`}>
+      <div className={`bg-gradient-to-br ${getTypeColor()} rounded-xl p-5 shadow-xl text-white border-2 border-white/30 ${(isPointer || isReference || isPointerReference) ? 'ring-2 ring-green-300 ring-offset-2' : ''}`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            {isReference ? (
+            {isPointerReference ? (
+              <span className="flex items-center">
+                <ArrowRight className="w-4 h-4" />
+                <Link2 className="w-4 h-4 -ml-1 animate-pulse" />
+              </span>
+            ) : isReference ? (
               <Link2 className="w-5 h-5 animate-pulse" />
             ) : isPointer ? (
               <ArrowRight className="w-5 h-5 animate-pulse" />
@@ -124,7 +133,40 @@ export default function StackFrame({ variable, isDarkMode }) {
           </span>
         </div>
         
-        {isPointer ? (
+        {isPointerReference ? (
+          <div className="space-y-2">
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3 border border-fuchsia-400/30">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs opacity-75 font-semibold uppercase tracking-wide">
+                  🔗 Pointer Reference (*&amp;)
+                </span>
+                <span className="text-[10px] bg-fuchsia-400/30 px-2 py-0.5 rounded-full text-fuchsia-200">
+                  Alias to pointer
+                </span>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between py-1.5 border-b border-white/10">
+                  <span className="text-sm opacity-75">References:</span>
+                  <span className="font-mono text-sm font-bold text-fuchsia-200">
+                    {variable.pointerRefTo || '(function return)'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-1.5">
+                  <span className="text-sm opacity-75">Current value:</span>
+                  <span className="font-mono text-sm font-bold">
+                    {variable.value || 'nullptr'}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="text-xs opacity-90 flex items-start gap-2 bg-fuchsia-400/20 rounded-lg p-2">
+              <span className="text-fuchsia-200 mt-0.5">⇄</span>
+              <span>
+                <strong>Alias to pointer variable.</strong> Assigning to <code className="bg-black/20 px-1 rounded">{variable.name}</code> modifies the original pointer <code className="bg-black/20 px-1 rounded">{variable.pointerRefTo}</code>
+              </span>
+            </div>
+          </div>
+        ) : isPointer ? (
           <div className="space-y-2">
             <div className={`bg-white/10 backdrop-blur-sm rounded-lg p-3 border ${isUninitialized ? 'border-red-400/50 bg-red-900/20' : 'border-white/20'}`}>
               <div className="text-xs opacity-75 mb-1">Stores Address:</div>

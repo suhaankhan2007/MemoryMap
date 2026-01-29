@@ -698,7 +698,76 @@ export function parseAndSimulateCpp(code) {
         }
       }
       
-      // Reference declaration
+      // ========== POINTER REFERENCE DECLARATION: Type *& name = ptrVar; ==========
+      // A pointer reference is a reference TO a pointer variable (alias for the pointer itself)
+      // Example: ListNode *& curr = head; // curr is an alias for head
+      // Assigning to curr changes head itself, not what head points to
+      if (!parsed) {
+        const ptrRefPattern = new RegExp(`^\\s*(${TYPE_PATTERN})\\s*\\*\\s*&\\s*(\\w+)\\s*=\\s*([^;]+)\\s*;?`);
+        const ptrRefMatch = trimmedLine.match(ptrRefPattern);
+        if (ptrRefMatch) {
+          const [, type, refName, targetExpr] = ptrRefMatch;
+          const targetName = targetExpr.trim();
+          
+          // Check if target is a pointer variable (or a function call that returns *&)
+          let targetPtrVar = null;
+          let actualTargetName = targetName;
+          
+          // Handle function call like _index(index)
+          const funcCallMatch = targetName.match(/^(\w+)\s*\(([^)]*)\)$/);
+          if (funcCallMatch) {
+            // For now, we'll represent this as referencing a conceptual pointer
+            // In a full implementation, the function would return the actual pointer reference
+            const [, funcName, args] = funcCallMatch;
+            const address = generateStackAddress();
+            
+            currentFrame.variables.set(refName, {
+              name: refName,
+              type: `${normalizeType(type)}*&`,
+              value: null, // Will be set when the reference target is resolved
+              address,
+              isPointerReference: true,
+              pointerRefType: 'function_return',
+              functionCall: { name: funcName, args },
+              baseType: normalizeType(type),
+            });
+            
+            addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
+            parsed = true;
+          } else if (currentFrame.variables.has(targetName)) {
+            targetPtrVar = currentFrame.variables.get(targetName);
+            
+            // Target must be a pointer type
+            if (targetPtrVar.type.includes('*')) {
+              const address = generateStackAddress();
+              
+              currentFrame.variables.set(refName, {
+                name: refName,
+                type: `${normalizeType(type)}*&`,
+                value: targetPtrVar.value, // Points to same target as the original pointer
+                address,
+                isPointerReference: true,
+                pointerRefTo: targetName, // This is the KEY: we reference the POINTER VARIABLE
+                pointerRefAddress: targetPtrVar.address, // Address of the pointer being referenced
+                baseType: normalizeType(type),
+              });
+              
+              // Track pointer reference - it points to the same heap location as the original
+              if (targetPtrVar.value && typeof targetPtrVar.value === 'string') {
+                pointers.set(refName, targetPtrVar.value);
+              }
+              
+              // Also track in references map for visualization (shows alias relationship)
+              references.set(refName, targetPtrVar.address);
+              
+              addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
+              parsed = true;
+            }
+          }
+        }
+      }
+      
+      // Reference declaration (non-pointer reference like int& ref = x;)
       if (!parsed) {
         const refPattern = new RegExp(`^\\s*(${TYPE_PATTERN})\\s*&\\s*(\\w+)\\s*=\\s*(\\w+)\\s*;?`);
         const refMatch = trimmedLine.match(refPattern);
@@ -1019,7 +1088,93 @@ export function parseAndSimulateCpp(code) {
         }
       }
       
-      // Assignment to existing variable
+      // ========== ASSIGNMENT TO POINTER REFERENCE: curr = expr; (where curr is Type *&) ==========
+      // When assigning to a pointer reference, we modify the ORIGINAL pointer variable
+      if (!parsed) {
+        const varAssignMatch = trimmedLine.match(/^\s*(\w+)\s*=\s*([^;]+);?\s*$/);
+        if (varAssignMatch && !trimmedLine.includes('[') && !trimmedLine.includes('.')) {
+          const [, name, value] = varAssignMatch;
+          
+          if (currentFrame.variables.has(name)) {
+            const variable = currentFrame.variables.get(name);
+            
+            // Check if this is a pointer reference
+            if (variable.isPointerReference && variable.pointerRefTo) {
+              const originalPtrName = variable.pointerRefTo;
+              
+              if (currentFrame.variables.has(originalPtrName)) {
+                const originalPtr = currentFrame.variables.get(originalPtrName);
+                let newValue = null;
+                
+                // Handle different assignment sources
+                if (value === 'nullptr' || value === 'NULL') {
+                  newValue = null;
+                } else if (value.includes('->')) {
+                  // Arrow operator: curr = curr->next or head->next
+                  const arrowMatch = value.match(/^(\w+)->(\w+)$/);
+                  if (arrowMatch) {
+                    const [, ptrName, memberName] = arrowMatch;
+                    
+                    // Get the pointer we're dereferencing
+                    let derefPtr = null;
+                    if (ptrName === name) {
+                      // Self-reference: curr = curr->next means follow current pointer
+                      derefPtr = variable;
+                    } else if (currentFrame.variables.has(ptrName)) {
+                      derefPtr = currentFrame.variables.get(ptrName);
+                    }
+                    
+                    if (derefPtr && derefPtr.value && heap.has(derefPtr.value)) {
+                      const heapNode = heap.get(derefPtr.value);
+                      if (heapNode.value && heapNode.value[memberName] !== undefined) {
+                        newValue = heapNode.value[memberName];
+                      }
+                    }
+                  }
+                } else if (currentFrame.variables.has(value)) {
+                  // Assigning from another pointer variable
+                  const sourcePtr = currentFrame.variables.get(value);
+                  if (sourcePtr.type.includes('*') || sourcePtr.isPointerReference) {
+                    newValue = sourcePtr.value;
+                  }
+                }
+                
+                // Update the ORIGINAL pointer variable (this is the key behavior of *&)
+                currentFrame.variables.set(originalPtrName, {
+                  ...originalPtr,
+                  value: newValue,
+                });
+                
+                // Also update the reference variable's cached value
+                currentFrame.variables.set(name, {
+                  ...variable,
+                  value: newValue,
+                });
+                
+                // Update pointer tracking
+                if (newValue && typeof newValue === 'string' && newValue.startsWith('0x')) {
+                  pointers.set(originalPtrName, newValue);
+                  pointers.set(name, newValue);
+                  
+                  // Check for dangling pointer
+                  if (heap.has(newValue) && heap.get(newValue).isDeleted) {
+                    danglingPointers.add(originalPtrName);
+                    danglingPointers.add(name);
+                  }
+                } else {
+                  pointers.delete(originalPtrName);
+                  pointers.delete(name);
+                }
+                
+                addStep(steps, lineIndex + 1, trimmedLine, callStack, heap, pointers, references, danglingPointers, raiiManagedHeap);
+                parsed = true;
+              }
+            }
+          }
+        }
+      }
+      
+      // Assignment to existing variable (regular, non-pointer-reference)
       if (!parsed) {
         const varAssignMatch = trimmedLine.match(/^\s*(\w+)\s*=\s*([^;]+);?\s*$/);
         if (varAssignMatch && !trimmedLine.includes('*') && !trimmedLine.includes('[') && !trimmedLine.includes('.')) {

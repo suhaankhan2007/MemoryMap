@@ -204,6 +204,26 @@ second->next = third;
 third->next = nullptr;`
   },
 
+  pointer_reference: {
+    name: "🔗 Pointer Reference (*&)",
+    description: "Understanding *& - reference to a pointer",
+    code: `struct ListNode {
+  int val;
+  ListNode* next;
+};
+
+ListNode* head = new ListNode;
+head->val = 10;
+head->next = nullptr;
+
+ListNode* second = new ListNode;
+second->val = 20;
+head->next = second;
+
+ListNode *& curr = head;
+curr = curr->next;`
+  },
+
   binary_tree: {
     name: "🌳 Binary Tree",
     description: "Build and visualize a binary tree",
