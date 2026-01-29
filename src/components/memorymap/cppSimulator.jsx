@@ -1524,13 +1524,53 @@ function addStep(steps, lineNumber, line, callStack, heap, pointers, references,
       }
     }
     
-    // Build memory leaks list - exclude RAII-managed allocations
+    // Build memory leaks list using REACHABILITY ANALYSIS
+    // A heap block is leaked if it's:
+    // 1. Not deleted
+    // 2. Not RAII-managed (vector, string, etc.)
+    // 3. Not reachable from any stack pointer (directly OR through heap connections)
+    //
+    // This is the correct model: leaks are about UNREACHABLE heap allocations,
+    // not about how many pointers exist.
+    
+    // First, find all heap addresses reachable from stack pointers
+    const reachableHeapAddresses = new Set();
+    
+    // Start with direct stack pointer targets
+    const toVisit = [...pointers.values()].filter(addr => addr && typeof addr === 'string' && addr.startsWith('0x'));
+    
+    // BFS/DFS to find all reachable heap blocks through next/prev/left/right pointers
+    while (toVisit.length > 0) {
+      const currentAddr = toVisit.pop();
+      
+      if (!currentAddr || reachableHeapAddresses.has(currentAddr)) {
+        continue;
+      }
+      
+      reachableHeapAddresses.add(currentAddr);
+      
+      // Check if this heap block has pointers to other heap blocks
+      const block = heap.get(currentAddr);
+      if (block && block.value && typeof block.value === 'object') {
+        // Check for linked list / tree pointers
+        const pointerMembers = ['next', 'prev', 'left', 'right', 'Next', 'Prev', 'Left', 'Right'];
+        for (const member of pointerMembers) {
+          const targetAddr = block.value[member];
+          if (targetAddr && typeof targetAddr === 'string' && targetAddr.startsWith('0x')) {
+            if (!reachableHeapAddresses.has(targetAddr)) {
+              toVisit.push(targetAddr);
+            }
+          }
+        }
+      }
+    }
+    
+    // Now find leaked blocks: allocated, not deleted, not RAII-managed, and NOT REACHABLE
     const actualMemoryLeaks = [];
     for (const [addr, block] of heap.entries()) {
       if (!block.isDeleted && !raiiManagedHeap.has(addr) && !block.ownedByVector) {
-        // Check if this is truly leaked (no pointers pointing to it)
-        const hasPointer = Array.from(pointers.values()).includes(addr);
-        if (!hasPointer) {
+        // Check reachability - this is the KEY to correct leak detection
+        if (!reachableHeapAddresses.has(addr)) {
           actualMemoryLeaks.push(addr);
         }
       }
